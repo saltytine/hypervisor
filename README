@@ -1,0 +1,23 @@
+# armv8-baremetal-demo-rust
+
+armv8 bare metal program written in rust.
+
+## ~/.cargo/config
+```shell
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[build]
+target = "aarch64-unknown-linux-gnu"
+
+[alias]
+build_aarch64 = "build --target aarch64-unknown-linux-gnu"
+```
+you'll need to install linker: `apt-get install aarch64-linux-gnu-`
+install the rust toolchain: `rustup install nightly && rustup default nightly && rustup target add aarch64-unknown-linux-gnu`
+
+## compile
+```shell
+cargo clean && cargo build [--realease]
+```
+then copy to the target armv8 machine for execution
