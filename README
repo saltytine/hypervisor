@@ -17,7 +17,7 @@ cargo clean && cargo build [--realease]
 ```
 then copy to the target armv8 machine for execution
 
-## Qemu
+## qemu
 qemu-system-aarch64 \
 -M virt \
 -m 1024M \
@@ -25,7 +25,7 @@ qemu-system-aarch64 \
 -nographic \
 -kernel target/aarch64-unknown-linux-gnu/debug/armv8-baremetal-demo-rust
 
-## Compile GDB for aarch64
+## compile gdb for aarch64
 1. Download gdb source: https://ftp.gnu.org/gnu/gdb/
 2. tar -xzvf xxx
 3. mkdir build
