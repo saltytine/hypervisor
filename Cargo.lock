@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "demo-rust"
+name = "armv8-baremetal-demo-rust"
 version = "0.1.0"
