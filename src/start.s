@@ -13,5 +13,5 @@ _start:
     b     el2_entry                   //; otherwise，enter el2_entry
 
 
-    bl    not_main                    //; jump
+    bl    init                        //; jump
     b     .                           //; never run here
