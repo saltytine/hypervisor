@@ -1,56 +1,53 @@
-#![no_std] // rm standard library linking
-#![no_main] // use the actual entry_start, not the main entry
+#![no_std] // disable standard library linking
+#![no_main] // use the actual entry_start that we define, not main
 
-use core::arch::global_asm;
-use core::ptr; // inline asm support
+use core::arch::global_asm; // inline asm support
 
+mod driver;
+mod lib;
 mod panic;
-
 global_asm!(include_str!("start.s")); // inline asm
 
-// #[lang = "eh_personality"]
-#[no_mangle] // make it so rust doesnt modify the function name we define during compilation
-pub extern "C" fn init() {
-    // see: https://en.wikipedia.org/wiki/Calling_convention
-    const UART0: *mut u8 = 0x0900_0000 as *mut u8;
-    let out_str = b"AARCH Bare Metal\n";
-    for byte in out_str {
-        unsafe {
-            ptr::write_volatile(UART0, *byte);
-        }
-    }
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ($crate::lib::_print(format_args!($($arg)*)));
 }
-#[no_mangle]
-pub extern "C" fn el3_entry() -> u8 {
-    printk_uart0("this is el3_entry.........\n")
+#[macro_export]
+macro_rules! println {
+    () => ($crate::print!("\n"));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
 
-#[no_mangle]
-pub extern "C" fn el2_entry() -> u8 {
-    printk_uart0("This is el2_entry.........\n")
+#[no_mangle] // tell rust to fuck off (no function name changes)
+pub extern "C" fn init(cpu_id: usize) {
+    // see：https://en.wikipedia.org/wiki/Calling_convention
+    println!("Welcome AArch64 Bare Metal Hypervisor\n");
+    boot_hypervisor(cpu_id);
 }
 
-fn printk_uart0(str: &str) -> u8 {
-    const UART0: *mut u8 = 0x0900_0000 as *mut u8;
-    for byte in str.bytes() {
-        unsafe {
-            ptr::write_volatile(UART0, byte);
-        }
-    }
-    return 0;
-}
-
-pub fn boot_hypervisor() -> u8 {
-    printk_uart0("Hello Hypervisor\n");
-    /*
-     * 1. configure related registers;
-     * 2. configure page table information;
-     * 3. other configurations;
+pub fn boot_hypervisor(cpu_id: usize) {
+    println!("Hello Hypervisor...\n");
+    /* 原始方案：(deprecated)
+     * 1. configure related registers；
+     * 2. configure page table info；
+     * 3. other congigurations；
      * 4. vcpu_init;
      * 5. ram_init;
      * 6. irq_init;
      * 7. load_image;
      * 8. vcpu_run;
      */
-    return 0;
+
+    /*
+     * 1. check if its core_0
+     * 2.
+     */
+    // printk_uart0(usize);
+    println!("cpu_id: {}", cpu_id);
+    if cpu_id == 0 {
+        println!("Welcome to RVM hypervisor...\n");
+        // heap::init();
+        // mem_init();
+    }
+    loop {}
 }
