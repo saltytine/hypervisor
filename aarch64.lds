@@ -1,15 +1,40 @@
-ENTRY(_start)
+ENTRY(arch_entry)
+
+BASE_ADDRESS = 0xffffc0200000;
+
 SECTIONS
 {
-    . = 0x40000000; /* QEMU physical memory address, file loading address */
-    .text.boot : {*(.text.boot)} /* specify the code segment .text of the start.o file after start.s is compiled and output as the .startup segmen */
-    .text : {*(.text)}
-    .data : {*(.data)}
-    .rodata : {*(.rodata)}
-    .bss : {*(.bss)}
+	. = BASE_ADDRESS;
 
-    . = ALIGN(8); /* 8 byte alignment, stack below */
+	.header		: {
+		__header_start = .;
+		KEEP(*(.header))
+	}
 
-    . = . + 0x4000; /* the size of the stack is 0x4000=16KB */
-    stack_top = .; /* corresponding to stack_top in start.s */
+	. = ALIGN(4K);
+	.text		: { *(.text .text.*) }
+
+	. = ALIGN(4K);
+	.rodata		: { *(.rodata .rodata.*) }
+
+	. = ALIGN(4K);
+	.data		: { *(.data .data.*) *(.got .got.*) }
+
+	. = ALIGN(4K);
+	.bootstrap_page_tables : { bootstrap_pt_l0 = .;
+							. = . + (1 << 12); bootstrap_pt_l1_hyp_uart = .;
+							. = . + (1 << 12); bootstrap_pt_l1_trampoline = .;
+							. = . + (1 << 12); bootstrap_pt_l2_hyp_uart = .;
+							. = . + (1 << 12); } .trampoline : { __trampoline_start = .; *(.trampoline) }
+
+	. = ALIGN(4K);
+	.bss		: { *(.bss .bss.*) *(COMMON) }
+
+	. = ALIGN(4K);
+	__core_end = .;
+
+	__entry_offset = arch_entry - BASE_ADDRESS;
+	__core_size = __core_end - BASE_ADDRESS;
+
+	/DISCARD/ : { *(.comment) *(.gnu*) *(.note*) *(.eh_frame*) }
 }

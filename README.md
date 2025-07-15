@@ -63,6 +63,16 @@ https://stackoverflow.com/questions/42824706/qemu-system-aarch64-entering-el1-wh
 https://stackoverflow.com/questions/31787617/what-is-the-current-execution-mode-exception-level-etc
 https://github.com/cirosantilli/linux-kernel-module-cheat/tree/35684b1b7e0a04a68987056cb15abd97e3d2f0cc#arm-exception-level
 
+## Type 1.5 start
+1. download and create an ubuntu image, and start it in qemu
+```shell
+make image
+```
+2. start the created virtual machine image in qemu
+```shell
+make qemu
+```
+
 ## compile gdb for aarch64 (unsuccessful)
 1. download gdb from source: https://ftp.gnu.org/gnu/gdb/gdb-13.1.tar.gz
 2. tar -xzvf gdb-13.1.tar.gz
