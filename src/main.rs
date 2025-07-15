@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(naked_functions)] //  surpport naked function
+#![feature(naked_functions)]
 #![feature(default_alloc_error_handler)]
 use core::arch::global_asm;
 use core::result::Result;
@@ -29,7 +29,7 @@ fn main(cpuid: u32, cpu_data: &mut PerCpu) -> HvResult {
     if is_primary {
         primary_init_early()?;
     }
-    Ok(())
+    cpu_data.activate_vmm()
 }
 fn arch_handle_exit() -> Result<(), ()> {
     Ok(())
