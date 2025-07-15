@@ -6,7 +6,7 @@ use core::arch::global_asm; // inline asm support
 mod driver;
 mod lib;
 mod panic;
-global_asm!(include_str!("start.s")); // inline asm
+global_asm!(include_str!("/arch/aarch64/start.s")); // inline asm
 
 #[macro_export]
 macro_rules! print {
@@ -18,9 +18,8 @@ macro_rules! println {
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
 
-#[no_mangle] // tell rust to fuck off (no function name changes)
+#[no_mangle]
 pub extern "C" fn init(cpu_id: usize) {
-    // see：https://en.wikipedia.org/wiki/Calling_convention
     println!("Welcome AArch64 Bare Metal Hypervisor\n");
     boot_hypervisor(cpu_id);
 }
