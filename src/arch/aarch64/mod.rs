@@ -1,4 +1,4 @@
 mod entry;
 pub mod entry;
-mod exception;
+pub mod exception;
 //mod vcpu;
