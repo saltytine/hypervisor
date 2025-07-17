@@ -5,7 +5,7 @@ use crate::arch::entry::{shutdown_el2, virt2phys_el2, vmreturn};
 use crate::consts::{PER_CPU_ARRAY_PTR, PER_CPU_SIZE};
 use crate::error::HvResult;
 use crate::header::HvHeader;
-use crate::header::{HEADER_STUFF, HvHeaderStuff};
+use crate::header::{HvHeaderStuff, HEADER_STUFF};
 use crate::memory::addr::VirtAddr;
 use aarch64_cpu::{asm, registers::*};
 use core::fmt::{Debug, Formatter, Result};
@@ -55,7 +55,8 @@ impl PerCpu {
     }
     pub fn activate_vmm(&mut self) -> HvResult {
         ACTIVATED_CPUS.fetch_add(1, Ordering::SeqCst);
-        HCR_EL2.modify(HCR_EL2::RW::EL1IsAarch64 + HCR_EL2::TSC::EnableTrapSmcToEl2);
+        set_vtcr_flags();
+        HCR_EL2.write(HCR_EL2::RW::EL1IsAarch64 + HCR_EL2::TSC::EnableTrapSmcToEl2 + HCR_EL2::VM::SET);
         self.return_linux()?;
         unreachable!()
     }
@@ -74,18 +75,30 @@ impl PerCpu {
     /*should be in vcpu*/
     pub fn arch_shutdown_self(&mut self) -> HvResult {
         /* Free the guest */
-
+        HCR_EL2.set(0x80000000);
+        VTCR_EL2.set(0x80000000);
         /* Remove stage-2 mappings */
-
+        unsafe {
+            isb();
+            arm_paging_vcpu_flush_tlbs();
+        }
         /* TLB flush needs the cell's VMID */
-
+        VTTBR_EL2.set(0);
         /* we will restore the root cell state with the MMU turned off,
          * so we need to make sure it has been committed to memory */
 
         /* hand over control of EL2 back to Linux */
         let linux_hyp_vec: u64 =
             unsafe { core::ptr::read_volatile(&HEADER_STUFF.arm_linux_hyp_vectors as *const _) };
-        VBAR_EL2.set(linux_hyp_vec);
+        unsafe {
+            core::arch::asm!(
+                "
+                msr vbar_el2,{linux_hyp_vec}
+        ",
+                linux_hyp_vec= in(reg) linux_hyp_vec,
+            );
+        }
+
         /* Return to EL1 */
         /* Disable mmu */
 
@@ -108,7 +121,37 @@ pub fn this_cpu_data<'a>() -> &'a mut PerCpu {
     let cpu_data: usize = PER_CPU_ARRAY_PTR as VirtAddr + cpu_id as usize * PER_CPU_SIZE;
     unsafe { &mut *(cpu_data as *mut PerCpu) }
 }
+
 pub fn get_cpu_data<'a>(cpu_id: u64) -> &'a mut PerCpu {
     let cpu_data: usize = PER_CPU_ARRAY_PTR as VirtAddr + cpu_id as usize * PER_CPU_SIZE;
     unsafe { &mut *(cpu_data as *mut PerCpu) }
+}
+
+pub fn set_vtcr_flags() {
+    let vtcr_flags = VTCR_EL2::TG0::Granule4KB
+        + VTCR_EL2::PS::PA_44B_16TB
+        + VTCR_EL2::SH0::Inner
+        + VTCR_EL2::HA::Enabled
+        + VTCR_EL2::SL0.val(2)
+        + VTCR_EL2::ORGN0::NormalWBRAWA
+        + VTCR_EL2::IRGN0::NormalWBRAWA
+        + VTCR_EL2::T0SZ.val(20);
+
+    VTCR_EL2.write(vtcr_flags);
+}
+
+pub unsafe extern "C" fn arm_paging_vcpu_flush_tlbs() {
+    core::arch::asm!(
+        "
+            tlbi vmalls12e1is
+        ",
+    );
+}
+
+pub unsafe extern "C" fn isb() {
+    core::arch::asm!(
+        "
+            isb
+        ",
+    );
 }
