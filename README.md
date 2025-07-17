@@ -1,6 +1,6 @@
-# armv8-baremetal-demo-rust
+# sysHyper
 
-using rust to write an armv8 hypervisor, for the purpose of being better than humza, and ofc, learning
+a hyperfivor written in rust for mission-critical devices and systems, for the purpose of being better than humza, and ofc, learning
 
 ## ~/.cargo/config
 ```shell
