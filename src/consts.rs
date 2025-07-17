@@ -7,7 +7,7 @@ use crate::memory::addr::{VirtAddr, align_up};
 pub const HV_HEAP_SIZE: usize = 1024 * 1024; // 1 MB
 
 /// Size of the per-CPU data (stack and other CPU-local data).
-pub const PER_CPU_SIZE: usize = 1024; // 1KB
+pub const PER_CPU_SIZE: usize = 16 * 1024; // 16KB
 
 /// Size of the per cpu boot stack
 pub const PER_CPU_BOOT_SIZE: usize = 1024; // 1KB
