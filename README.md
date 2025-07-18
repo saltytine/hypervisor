@@ -1,91 +1,135 @@
-# sysHyper
+#sysHyper
+![Static Badge](https://img.shields.io/badge/sysHyper-orange)
+![GitHub](https://img.shields.io/github/license/syswonder/sysHyper?color=red)
 
-a hyperfivor written in rust for mission-critical devices and systems, for the purpose of being better than humza, and ofc, learning
+[![Contributors](https://img.shields.io/github/contributors/syswonder/sysHyper?color=blue)](https://github.com/syswonder/sysHyper)
+![GitHub Repo stars](https://img.shields.io/github/stars/syswonder/sysHyper?color=yellow)
+![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/w/syswonder/sysHyper?color=black)
 
-## ~/.cargo/config
-```shell
-[build]
-target="aarch64-unknown-none"
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/syswonder/sysHyper?color=green)
+![GitHub repo size](https://img.shields.io/github/repo-size/syswonder/sysHyper?color=white)
+![GitHub top language](https://img.shields.io/github/languages/top/syswonder/sysHyper?color=orange)
 
-[target.aarch64-unknown-linux-gnu]
-linker = "aarch64-linux-gnu-gcc"
-rustflags = [
-    "-C", "link-arg=-nostartfiles -Tlinker.ld",
-]
 
-[target.aarch64-unknown-none]
-linker = "aarch64-none-elf-gcc"
+
+
+Armv8 hypervisor based on Linux & implemented in Rust, porting from [RVM1.5](https://github.com/rcore-os/RVM1.5) & [jailhouse](https://github.com/siemens/jailhouse)
+
+## Progress
+- [x] arch_entry
+- [x] cpu
+- [x]logging
+- [x]exception
+- [x]gicv3
+- [x]memory
+- [ ] ....
+## Platform
+- [x] qemu
+- [ ] imx
+- [ ] ti
+- [ ] rpi4
+## Environment Configuration
+### Install Rust
+First, install Rust version manager rustup and Rust package manager cargo.
+### qemu simulator compilation
+```sh
+sudo apt install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev \
+gawk build-essential bison flex texinfo gperf libtool patchutils bc \
+zlib1g-dev libexpat-dev pkg-config libglib2.0-dev libpixman-1-dev git tmux python3 ninja-build # Install the required dependencies for compilation
+wget https://download.qemu.org/qemu-7.0.0.tar.xz # Download source code
+tar xvJf qemu-7.0.0.tar.xz # Unzip
+cd qemu-7.0.0
+./configure # Generate configuration file
+make -j$(nproc) # Compile
+qemu-system-aarch64 --version # View version
 ```
-youll need to install linker: `aarch64-none-elf-` address: https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-x86_64 -aarch64-none-elf.tar.xz?rev=9d9808a2d2194b1283d6a74b40d46ada&hash=4E429A41C958483C9DB8ED84B051D010F86BA62
-install the rust toolchain: `rustup install nightly && rustup default nightly && rustup target add aarch64-unknown-none (optional, we use the json config)`
-
-`apt install gdb-multiarch`
-
-## compile
-```shell
-make
+Qemu version > 7.2 requires additional configuration, otherwise the following problems may occur at startup
+```
+network backend user is not compiled into this binary
+```
+The following settings need to be made before compiling:
+```sh
+sudo apt install libslirp-dev
+../configure --enable-slirp
+```
+After compiling, you can `sudo make install` to install Qemu to the `/usr/local/bin` directory,
+You can also edit ` ~/.bashrc` File (if you are using the default bash terminal), add the following to the end of the file:
+```
+export PATH=$PATH:/path/to/qemu-7.0.0/build
 ```
 
-## qemu
-```shell
-make start
+### Start qemu
+```sh
+mkdir qemu-test # Create a new folder for testing
+git submodule update --init --recursive # Update submodules
+cp -r test-img/* qemu-test # Transfer the required files to the test folder
+cd qemu-test/host
+./test.sh # Start qemu
 ```
-or
-```shell
+The default user password for Linux is root/root
+### Compile sysHyper
+Execute on the host
+```sh
+make # Compile the hypervisor image rvmarm.bin
+make scp # Transfer the obtained rvmarm.bin file to the Linux running on qemu
+```
+### Run sysHyper
+Transfer the necessary files to the guest Linux:
+```sh
+scp -P 2333 -r qemu-test/guest/* root@localhost:~/
+```
+In guest linux
+```sh
+./setup.sh #Set file path
+./enable.sh #Run sysHyper, enable virtualization
+cat /proc/cpuinfo #View current linux cpuinfo
+jailhouse cell create configs/qemu-arm64-gic-demo.cell #Create a new cell, move cpu 3 out of the root cell
+cat /proc/cpuinfo #View current linux cpuinfo, cpu3 is shutdown
+jailhouse disable #Disable virtualization
+```
+### output
+You should be able to see some information printed by the hypervisor
+
+### Debugging
+You can use vscode for visual debugging, add `-s -S` to the end of the original qemu command
+```sh
 qemu-system-aarch64 \
-    -M virt \
-    -m 1024M \
-    -cpu cortex-a53 \
-    -nographic \
-    -kernel target/aarch64-unknown-linux-gnu/debug/armv8-baremetal-demo-rust
+    -drive file=./rootfs.qcow2,discard=unmap,if=none,id=disk,format=qcow2 \
+    -device virtio-blk-device,drive=disk \
+    -m 1G -serial mon:stdio \
+    -kernel Image \
+    -append "root=/dev/vda mem=768M" \
+    -cpu cortex-a57 -smp 4 -nographic -machine virt,gic-version=3,virtualization=on \
+    -device virtio-serial-device -device virtconsole,chardev=con \
+    -chardev vc,id=con \
+    -net nic \
+    -net user,hostfwd=tcp::2333-:22 -s -S
 ```
+Start qemu first, then press F5 to start debugging
 
-## qemu debug
-```shell
+### Original jailhouse
+During the development and debugging process, in order to facilitate comparison with the original jailhouse, the original jailhouse running environment of version v0.12 is also provided:
+    - test-img/host/jail-img kernel
+    - test-img/guest/jail Original jailhouse compiled generated files
+The running command is:
+```sh
 qemu-system-aarch64 \
-    -M virt \
-    -m 1024M \
-    -cpu cortex-a53 \
-    -nographic
-    -machine virtualization=on \
-    #-machine secure=on \
-    -kernel target/aarch64-unknown-linux-gnu/debug/armv8-baremetal-demo-rust \
-    -S -s
+    -drive file=./rootfs.qcow2,discard=unmap,if=none,id=disk,format=qcow2 \
+    -m 1G -serial mon:stdio -netdev user,id=net,hostfwd=tcp::23333-:22 \
+    -kernel jail-img \
+    -append "root=/dev/vda mem=768M"  \
+    -cpu cortex-a57 -smp 16 -nographic -machine virt,gic-version=3,virtualization=on \
+    -device virtio-serial-device -device virtconsole,chardev=con -chardev vc,id=con -device virtio-blk-device,drive=disk \
+    -device virtio-net-device,netdev=net
 ```
-and then use
-`gdb-multiarch target/aarch64-unknown-linux-gnu/debug/armv8-baremetal-demo-rust`
-enter gdb and put: `target remote:1234` to start debugging
-(-machine virtualization=on enables el2, secure=on turns on el3, but we only really need to start with el2)
-then use aarch64-linux-gnu-gdb -x debug.gdb, qemu starts virt from el1 by default
-
-references:
-https://stackoverflow.com/questions/42824706/qemu-system-aarch64-entering-el1-when-emulating-a53-power-up
-https://stackoverflow.com/questions/31787617/what-is-the-current-execution-mode-exception-level-etc
-https://github.com/cirosantilli/linux-kernel-module-cheat/tree/35684b1b7e0a04a68987056cb15abd97e3d2f0cc#arm-exception-level
-
-## Type 1.5 start
-1. download and create an ubuntu image, and start it in qemu
-```shell
-make image
-```
-2. start the created virtual machine image in qemu
-```shell
-make qemu
+In guest:
+```sh
+cd jail
+insmod ./jailhouse.ko
+cp jailhouse.bin /lib/firmware/
+./jailhouse enable configs/qemu-arm64.cell
 ```
 
-## compile gdb for aarch64 (unsuccessful)
-1. download gdb from source: https://ftp.gnu.org/gnu/gdb/gdb-13.1.tar.gz
-2. tar -xzvf gdb-13.1.tar.gz
-3. mkdir build
-4. cd $_
-5. ../configure --prefix=$PWD --target=aarch64-linux-gnu
-6. make -j$(nproc) [CFLAGS=-static CXXFLAGS=-static]
-
---target specifies the architecture of the program to be debugged, --host specifies the architecture of the gdb program to run
-
-## compile qemu (available)
-1. download qemu10.0.source
-2. tar decompress
-3. mkdir build && cd build
-4. ../qemu-10.0.1/configure --enable-kvm --enable-slirp --enable-debug --target-list=aarch64-softmmu,x86_64-softmmu
-5. make-j2
+Related documents for this project are at
+https://github.com/saltytine/aarch64-cpu
+https://github.com/saltytine/sysHyper-testimg
