@@ -32,18 +32,81 @@ impl Cell<'_> {
         //     MemFlags::READ | MemFlags::NO_HUGEPAGES,
         // ))?;
 
+        // gpm.insert(MemoryRegion::new_with_offset_mapper(
+        //     0xffffc0200000 as GuestPhysAddr,
+        //     0x7fc00000 as HostPhysAddr,
+        //     0x00400000 as usize,
+        //     MemFlags::READ | MemFlags::NO_HUGEPAGES,
+        // ))?;
+        info!("set gpm 1");
         gpm.insert(MemoryRegion::new_with_offset_mapper(
-            hv_phys_start as GuestPhysAddr,
-            hv_phys_start as HostPhysAddr,
-            hv_phys_size as usize,
+            0x7fc00000 as GuestPhysAddr,
+            0x7fc00000 as HostPhysAddr,
+            0x00100000 as usize,
             MemFlags::READ | MemFlags::NO_HUGEPAGES,
         ))?;
+
+        info!("gpm1 ok");
+        info!("set gpm 2");
+        //use ldr to test  different offset
         gpm.insert(MemoryRegion::new_with_offset_mapper(
-            HV_BASE as GuestPhysAddr,
-            hv_phys_start as HostPhysAddr,
-            hv_phys_size as usize,
-            MemFlags::READ | MemFlags::NO_HUGEPAGES,
+            0x7fd00000 as GuestPhysAddr,
+            0x7fc00000 as HostPhysAddr,
+            0x00200000 as usize,
+            MemFlags::READ,
         ))?;
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            0xf7fd00000 as GuestPhysAddr,
+            0x07fc00000 as HostPhysAddr,
+            0x000200000 as usize,
+            MemFlags::READ,
+        ))?;
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            0xff7fd00000 as GuestPhysAddr,
+            0x07fc00000 as HostPhysAddr,
+            0x0002000000 as usize,
+            MemFlags::READ,
+        ))?;
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            0xfff7fd00000 as GuestPhysAddr,
+            0x07fc00000 as HostPhysAddr,
+            0x00000200000 as usize,
+            MemFlags::READ,
+        ))?;
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            //bad map at here 0xfffffffff
+            0xfffffe00000 as GuestPhysAddr,
+            0x07fc00000 as HostPhysAddr,
+            0x00000200000 as usize,
+            MemFlags::READ,
+        ))?;
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            0x1fffffffffff as GuestPhysAddr,
+            0x07fc00000 as HostPhysAddr,
+            0x00000200000 as usize,
+            MemFlags::READ,
+        ))?;
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            0xffff00000000 as GuestPhysAddr,
+            0x07fc00000 as HostPhysAddr,
+            0x000000200000 as usize,
+            MemFlags::READ,
+        ))?;
+        info!("gpm2 ok");
+        info!("set gpm 3");
+        gpm.insert(MemoryRegion::new_with_offset_mapper(
+            0xffffc0200000 as GuestPhysAddr,
+            0x00007fc00000 as HostPhysAddr,
+            0x000000200000 as usize,
+            MemFlags::READ,
+        ))?;
+        info!("gpm3 ok");
+        // gpm.insert(MemoryRegion::new_with_offset_mapper(
+        //     HV_BASE as GuestPhysAddr,
+        //     hv_phys_start as HostPhysAddr,
+        //     hv_phys_size as usize,
+        //     MemFlags::READ | MemFlags::NO_HUGEPAGES,
+        // ))?;
 
         // Map all physical memory regions.
         gpm.insert(MemoryRegion::new_with_offset_mapper(
@@ -71,12 +134,12 @@ impl Cell<'_> {
             0x0200000 as usize,
             MemFlags::READ | MemFlags::WRITE,
         ))?;
-        //add test_el1 memory map
+        //add test_el1 memory Map
         // gpm.insert(MemoryRegion::new_with_offset_mapper(
         //     0xffffc0200000 as GuestPhysAddr,
         //     0x00007fc00000 as HostPhysAddr,
         //     0x000000400000 as usize,
-        //     MemFlags::READ | MemFlags::WRITE,
+        //     MemFlags::READ | MemFlags::WRITE | MemFlags::EXECUTE,
         // ))?;
         // for region in cell_config.mem_regions() {
         //     gpm.insert(MemoryRegion::new_with_offset_mapper(
@@ -112,7 +175,7 @@ pub fn root_cell<'a>() -> &'a Cell<'a> {
 pub fn init() -> HvResult {
     let root_cell = Cell::new_root()?;
     info!("Root cell init end.");
-    // debug!("{:#x?}", root_cell);
+    //debug!("{:#x?}", root_cell);
 
     ROOT_CELL.call_once(|| root_cell);
     Ok(())
