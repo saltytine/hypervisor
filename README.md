@@ -1,4 +1,4 @@
-#sysHyper
+# sysHyper
 ![Static Badge](https://img.shields.io/badge/sysHyper-orange)
 ![GitHub](https://img.shields.io/github/license/syswonder/sysHyper?color=red)
 
@@ -18,10 +18,10 @@ Armv8 hypervisor based on Linux & implemented in Rust, porting from [RVM1.5](htt
 ## Progress
 - [x] arch_entry
 - [x] cpu
-- [x]logging
-- [x]exception
-- [x]gicv3
-- [x]memory
+- [x] logging
+- [x] exception
+- [x] gicv3
+- [x] memory
 - [ ] ....
 ## Platform
 - [x] qemu
