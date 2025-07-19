@@ -10,6 +10,8 @@ use crate::error::HvResult;
 use crate::header::HvHeader;
 use crate::header::{HvHeaderStuff, HEADER_STUFF};
 use crate::memory::addr::VirtAddr;
+use crate::memory::addr::{GuestPhysAddr, HostPhysAddr};
+use crate::memory::{GenerigPageTableImmut, MemFlags, MemoryRegion, MemorySet};
 use aarch64_cpu::{asm, registers::*};
 use core::fmt::{Debug, Formatter, Result};
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -69,13 +71,6 @@ impl PerCpu {
                 + HCR_EL2::IMO::SET
                 + HCR_EL2::FMO::SET,
         );
-        if (self.id == 3) {
-            info!("test el1!");
-            test_cpu_el1();
-        } else {
-            info!("stop here!");
-            loop {}
-        }
         self.return_linux()?;
         unreachable!()
     }
@@ -171,6 +166,23 @@ pub unsafe extern "C" fn isb() {
 
 pub fn test_cpu_el1() {
     info!("hello from el2");
+    let mut gpm: MemorySet<Stage2PageTable> = MemorySet::new();
+    info!("set gpm for el1");
+    gpm.insert(MemoryRegion::new_with_offset_mapper(
+        0xa0000000 as GuestPhysAddr,
+        0x7fa00000 as HostPhysAddr,
+        0x00100000 as usize,
+        MemFlags::READ | MemFlags::WRITE | MemFlags::NO_HUGEPAGES,
+    ));
+    gpm.insert(MemoryRegion::new_with_offset_mapper(
+        0x09000000 as GuestPhysAddr,
+        0x09000000 as HostPhysAddr,
+        0x00001000 as usize,
+        MemFlags::READ | MemFlags::WRITE | MemFlags::IO
+    ));
+    unsafe {
+        gpm.activate();
+    }
     cpu_reset();
 }
 #[no_mangle]
