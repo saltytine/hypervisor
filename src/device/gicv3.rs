@@ -80,6 +80,7 @@ mod gicd;
 mod gicr;
 use crate::arch::sysreg::{read_sysreg, smc_arg1, write_sysreg};
 use crate::hypercall::SGI_HV_ID;
+use crate::percpu::test_cpu_el1;
 /// Representation of the GIC.
 pub struct GICv3 {
     /// The Distributor.
@@ -103,16 +104,16 @@ impl GICv3 {
 
 //TODO: add Distributor init
 pub fn gicv3_cpu_init() {
-    //TODO: add Redistrobutor init
+    //TODO: add Redistributor init
     let sdei_ver = unsafe { smc_arg1!(0xc4000020) }; //sdei_check();
     info!("sdei vecsion: {}", sdei_ver);
     info!("gicv3 init!");
-    //Indentifier bits. Read-only and writes are ignored.
+    //Identifier bits. Read-only and writes are ignored.
     //Priority bits. Read-only and writes are ignored.
     unsafe {
         let ctlr = read_sysreg!(icc_ctlr_el1);
         debug!("ctlr: {:#x?}", ctlr);
-        write_sysreg!(icc_ctlr_el1, 0x2); // ICC_CTLR_EL1 provide priority drop functionality only. ICC_DIR_EL1 provides interrupt deactivation functionality.
+        write_sysreg!(icc_ctlr_el1, 0x2); // ICC_EOIR1_EL1 provide priority drop functionality only. ICC_DIR_EL1 provides interrupt deactivation functionality.
         let ctlr2 = read_sysreg!(icc_ctlr_el1);
         debug!("ctlr2: {:#x?}", ctlr2);
         let pmr = read_sysreg!(icc_pmr_el1);
@@ -132,19 +133,18 @@ fn gicv3_clear_pending_irqs() {
     for i in 0..lr_num {
         write_lr(i, 0) //clear lr
     }
-    let num_priority_bits = (vtr >> 29) {
-        /* Clear active priority bits */
-        unsafe {
-            if num_priority_bits >= 5 {
-                write_sysreg!(ICH_AP1R0_EL2, 0); //Interrupt controller hyp active priorities froup 1 register 0 no interrupt active
-            }
-            if num_priority_bits >= 6 {
-                write_sysreg!(ICH_AP1R1_EL2, 0);
-            }
-            if num_priority_bits > 6 {
-                write_sysreg!(ICH_AP1R2_EL2, 0);
-                write_sysreg!(ICH_AP1R3_EL2, 0);
-            }
+    let num_priority_bits = (vtr >> 29) + 1;
+    /* Clear active priority bits */
+    unsafe {
+        if num_priority_bits >= 5 {
+            write_sysreg!(ICH_AP1R0_EL2, 0); //Interrupt Controller Hyp Active Priorities Group 1 Register 0 No interrupt active
+        }
+        if num_priority_bits >= 6 {
+            write_sysreg!(ICH_AP1R1_EL2, 0);
+        }
+        if num_priority_bits > 6 {
+            write_sysreg!(ICH_AP1R2_EL2, 0);
+            write_sysreg!(ICH_AP1R3_EL2, 0);
         }
     }
 }
@@ -164,26 +164,43 @@ pub fn gicv3_cpu_shutdown() {
 
 pub fn gicv3_handle_irq_el1() {
     if let Some(irq_id) = pending_irq() {
-        if (irq_id < 16) {
+        // enum ipi_msg_type {
+        //     IPI_WAKEUP,
+        //     IPI_TIMER,
+        //     IPI_RESCHEDULE,
+        //     IPI_CALL_FUNC,
+        //     IPI_CPU_STOP,
+        //     IPI_IRQ_WORK,
+        //     IPI_COMPLETION,
+        //     /*
+        //      * CPU_BACKTRACE is special and not included in NR_IPI
+        //      * or tracable with trace_ipi_*
+        //      */
+        //     IPI_CPU_BACKTRACE,
+        //     /*
+        //      * SGI8-15 can be reserved by secure firmware, and thus may
+        //      * not be usable by the kernel. Please keep the above limited
+        //      * to at most 8 entries.
+        //      */
+        // };
+        //SGI
+        if irq_id < 16 {
             trace!("sgi get {}", irq_id);
-            if irq_id != 0 {
-                info!("sgi get {}", irq_id);
+            if irq_id < 8 {
+                trace!("sgi get {},inject", irq_id);
+                deactivate_irq(irq_id);
+                inject_irq(irq_id);
+            } else if irq_id == SGI_HV_ID as usize {
+                info!("HV SGI EVENT {}", irq_id);
+                test_cpu_el1();
+            } else {
+                warn!("skip sgi {}", irq_id);
             }
+        } else {
+            //inject phy irq
+            deactivate_irq(irq_id);
+            inject_irq(irq_id);
         }
-
-        if irq_id == SGI_HV_ID as usize {
-            info!("hv sgi got {}", irq_id);
-            unsafe {
-                core::arch::asm!(
-                    "
-                wfi
-            ",
-                );
-            }
-        }
-
-        deactivate_irq(irq_id);
-        inject_irq(irq_id);
     }
 }
 fn pending_irq() -> Option<usize> {
@@ -283,11 +300,11 @@ fn inject_irq(irq_id: usize) {
             return;
         }
     }
-    //debug!("To Inject IRQ {}, find lr {}", irq_id, lr_idx);
+    debug!("To Inject IRQ {}, find lr {}", irq_id, lr_idx);
 
     if lr_idx == -1 {
         error!("full lr");
-        loop{}
+        loop {}
         return;
     } else {
         // lr = irq_id;
