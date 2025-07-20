@@ -14,6 +14,7 @@ extern crate lazy_static;
 #[macro_use]
 mod logging;
 
+mod control;
 //#[cfg(target_arch = "aarch64")]
 #[path = "arch/aarch64/mod.rs"]
 mod arch;
@@ -104,7 +105,7 @@ fn primary_init_late() {
     INIT_LATE_OK.store(1, Ordering::Release);
 }
 
-fn main(cpu_data: &mut PerCpu) -> HvResult {
+fn main(cpu_data: &'static mut PerCpu) -> HvResult {
     println!("Hello");
     println!(
         "cpuid{} vaddr{:#x?} phyid{} &cpu_data{:#x?}",
@@ -128,10 +129,9 @@ fn main(cpu_data: &mut PerCpu) -> HvResult {
         wait_for_counter(&INIT_EARLY_OK, 1)?
     }
 
-    unsafe {
-        memory::hv_page_table().read().activate();
-        root_cell().gpm.activate();
-    };
+    cpu_data.cell = Some(root_cell().clone());
+    unsafe { root_cell().gpm.activate() };
+
     println!("CPU {} init OK.", cpu_data.id);
     INITED_CPUS.fetch_add(1, Ordering::SeqCst);
     wait_for_counter(&INITED_CPUS, online_cpus)?;
@@ -144,6 +144,6 @@ fn main(cpu_data: &mut PerCpu) -> HvResult {
     gicv3_cpu_init();
     cpu_data.activate_vmm()
 }
-extern "C" fn entry(cpu_data: &mut PerCpu) -> () {
+extern "C" fn entry(cpu_data: &'static mut PerCpu) -> () {
     if let Err(_e) = main(cpu_data) {}
 }
