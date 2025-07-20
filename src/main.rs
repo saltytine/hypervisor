@@ -4,10 +4,8 @@
 #![feature(naked_functions)] //  surpport naked function
 #![feature(default_alloc_error_handler)]
 use core::arch::global_asm;
-use core::result::Result;
 #[macro_use]
 extern crate alloc;
-#[macro_use]
 extern crate buddy_system_allocator;
 #[macro_use]
 mod error;
