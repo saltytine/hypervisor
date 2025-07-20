@@ -2,8 +2,6 @@
 #![no_main]
 #![feature(asm_const)]
 #![feature(naked_functions)] //  surpport naked function
-#![feature(default_alloc_error_handler)]
-use core::arch::global_asm;
 #[macro_use]
 extern crate alloc;
 extern crate buddy_system_allocator;
@@ -29,7 +27,6 @@ mod memory;
 mod panic;
 mod percpu;
 
-use crate::arch::sysreg::{read_sysreg, write_sysreg};
 use crate::cell::root_cell;
 use crate::percpu::this_cpu_data;
 use config::HvSystemConfig;
