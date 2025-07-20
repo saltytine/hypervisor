@@ -1,14 +1,14 @@
 # sysHyper
 ![Static Badge](https://img.shields.io/badge/sysHyper-orange)
-![GitHub](https://img.shields.io/github/license/syswonder/sysHyper?color=red)
+![GitHub](https://img.shields.io/github/license/saltytine/hypervisor?color=red)
 
-[![Contributors](https://img.shields.io/github/contributors/syswonder/sysHyper?color=blue)](https://github.com/syswonder/sysHyper)
-![GitHub Repo stars](https://img.shields.io/github/stars/syswonder/sysHyper?color=yellow)
-![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/w/syswonder/sysHyper?color=black)
+[![Contributors](https://img.shields.io/github/contributors/saltytine/hypervisor?color=blue)](https://github.com/saltytine/hypervisor)
+![GitHub Repo stars](https://img.shields.io/github/stars/saltytine/hypervisor?color=yellow)
+![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/w/saltytine/hypervisor?color=black)
 
-![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/syswonder/sysHyper?color=green)
-![GitHub repo size](https://img.shields.io/github/repo-size/syswonder/sysHyper?color=white)
-![GitHub top language](https://img.shields.io/github/languages/top/syswonder/sysHyper?color=orange)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/saltytine/hypervisor?color=green)
+![GitHub repo size](https://img.shields.io/github/repo-size/saltytine/hypervisor?color=white)
+![GitHub top language](https://img.shields.io/github/languages/top/saltytine/hypervisor?color=orange)
 
 
 
@@ -129,6 +129,17 @@ insmod ./jailhouse.ko
 cp jailhouse.bin /lib/firmware/
 ./jailhouse enable configs/qemu-arm64.cell
 ```
+
+### Compile demo
+Now you can create a new cell and run a simple hello world program.
+```sh
+cd demo/hello
+make
+cd ../..
+cp demo/hello/target/aarch64/debug/hello.bin qemu-test/host
+```
+Add `-device loader,addr=0x7fa00000,file=hello.bin,force-raw=on \`
+After executing cell create, you should see the output `Hello, world!`
 
 Related documents for this project are at
 https://github.com/saltytine/aarch64-cpu
