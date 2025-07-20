@@ -22,6 +22,12 @@ pub struct HvConsole {
     clock_reg: u64,
 }
 
+impl HvConsole {
+    pub fn new() -> Self {
+        Self { address: 0, size: 0, console_type: 0, flags: 0, divider: 0, gate_nr: 0, clock_reg: 0 }
+    }
+}
+
 /// The jailhouse cell configuration.
 ///
 /// @note Keep Config._HEADER_FORMAT in jailhouse-cell-linux in sync with this
@@ -49,7 +55,7 @@ pub struct HvCellDesc {
     cpu_reset_address: u64,
     msg_reply_timeout: u64,
 
-    console: HvConsole,
+    pub console: HvConsole,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -138,14 +144,14 @@ struct HvIommu {
 #[cfg(target_arch = "aarch64")]
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
-struct ArmPlatformInfo {
+pub struct ArmPlatformInfo {
     maintenance_irq: u8,
-    gic_version: u8,
-    gicd_base: u64,
-    gicc_base: u64,
+    pub gic_version: u8,
+    pub gicd_base: u64,
+    pub gicc_base: u64,
     gich_base: u64,
     gicv_base: u64,
-    gicr_base: u64,
+    pub gicr_base: u64,
     _pooling: [u32; 34],
 }
 
@@ -156,7 +162,7 @@ pub struct PlatformInfo {
     pub pci_mmconfig_end_bus: u8,
     pci_is_virtual: u8,
     pci_domain: u16,
-    arch: ArmPlatformInfo,
+    pub arch: ArmPlatformInfo,
 }
 
 /// General descriptor of the system.
@@ -254,6 +260,13 @@ impl<'a> CellConfig<'a> {
         self.desc.id
     }
 
+        pub fn flags() -> u32 {
+            self.desc.flags
+        }
+
+        pub fn console(&self) -> HvConsole {
+            self.desc.console
+        }
     pub fn cpu_set(&self) -> &[u8] {
         // XXX: data may unaligned, which cause panic on debug mode. Same below.
         // See: https://doc.rust-lang.org/src/core/slice/mod.rs.html#6435-6443
