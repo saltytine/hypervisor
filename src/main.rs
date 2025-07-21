@@ -89,8 +89,7 @@ fn primary_init_early() -> HvResult {
     info!("System config: {:#x?}", system_config);
 
     memory::init_frame_allocator();
-    // TODO： there is one bug when enable stage 1 table in el2
-    // memory::init_hv_page_table()?;
+    memory::init_hv_page_table()?;
     cell::init()?;
 
     INIT_EARLY_OK.store(1, Ordering::Release);
@@ -107,7 +106,10 @@ fn per_cpu_init() {
     let cpu_data = this_cpu_data();
     cpu_data.cell = Some(root_cell());
     gicv3_cpu_init();
-    unsafe { root_cell().read().gpm.activate() };
+    unsafe {
+        memory::hv_page_table().read().gpm.activate();
+        root_cell().read().gpm.activate()
+    };
     println!("CPU {} init OK.", cpu_data.id);
 }
 
