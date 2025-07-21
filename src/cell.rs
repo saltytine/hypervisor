@@ -3,11 +3,14 @@ use alloc::vec::Vec;
 use spin::RwLock;
 
 use crate::arch::Stage2PageTable;
-use crate::config::{CellConfig, HvCellDesc, HvSystemConfig, HvConsole};
+use crate::config::{CellConfig, HvCellDesc, HvConsole, HvSystemConfig};
 use crate::control::{resume_cpu, suspend_cpu};
+use crate::device::gicv3::{gicv3_mmio_handler, GICD_SIZE};
 use crate::error::HvResult;
 use crate::memory::addr::{GuestPhysAddr, HostPhysAddr};
-use crate::memory::{npages, Frame, MemFlags, MemoryRegion, MemorySet};
+use crate::memory::{
+    npages, Frame, MemFlags, MemoryRegion, MemorySet, MMIOConfig, MMIORegion, MMIOHandler,
+};
 use crate::percpu::{this_cpu_data, CpuSet};
 
 #[repr(C)]
@@ -18,7 +21,9 @@ pub struct CommPage {
 
 impl CommPage {
     fn new() -> Self {
-        Self { comm_region: CommRegion::new() }
+        Self {
+            comm_region: CommRegion::new(),
+        }
     }
     // set CommPage to 0s
     pub fn fill_zero(&mut self) {
@@ -27,12 +32,12 @@ impl CommPage {
 }
 #[repr(C)]
 pub struct CommRegion {
-    pub signature: [u8, 6],
+    pub signature: [u8; 6],
     pub revision: u16,
-    pub cell_state: u32, // volatile
-    msg_to_cell: u32, // volatile
-    reply_from_cell: u32, // volatile
-    pub flags: u32, // volatile
+    pub cell_state: u32,  // volatile
+    msg_to_cell: u32,     // volatile
+    reply_from_cell: u32, //volatile
+    pub flags: u32,       //volatile
     pub console: HvConsole,
     pub gic_version: u8,
     pub gicd_base: u64,
@@ -50,22 +55,21 @@ impl CommRegion {
             reply_from_cell: 0,
             flags: 0,
             console: HvConsole::new(),
-            gic_version: 0
+            gic_version: 0,
             gicd_base: 0,
             gicc_base: 0,
             gicr_base: 0,
         }
     }
 }
-
 pub struct Cell {
     /// Communication Page
     pub comm_page: Frame,
-        // pub comm_page: CommPage,
     /// Cell configuration.
     pub config_frame: Frame,
     /// Guest physical memory set.
     pub gpm: MemorySet<Stage2PageTable>,
+    pub mmio: Vec<MMIOConfig>,
     pub cpu_set: CpuSet,
     pub loadable: bool,
 }
@@ -75,12 +79,12 @@ impl Cell {
         let sys_config = HvSystemConfig::get();
         let cell_config = sys_config.root_cell.config();
         let mut cell = Self::new(cell_config)?;
+
         let mmcfg_start = sys_config.platform_info.pci_mmconfig_base;
         let mmcfg_size = (sys_config.platform_info.pci_mmconfig_end_bus + 1) as u64 * 256 * 4096;
         let hv_phys_start = sys_config.hypervisor_memory.phys_start as usize;
         let hv_phys_size = sys_config.hypervisor_memory.size as usize;
 
-        let mut gpm: MemorySet<Stage2PageTable> = MemorySet::new();
         cell.gpm.insert(MemoryRegion::new_with_offset_mapper(
             hv_phys_start as GuestPhysAddr,
             hv_phys_start as HostPhysAddr,
@@ -125,7 +129,7 @@ impl Cell {
                 MemFlags::READ | MemFlags::WRITE | MemFlags::IO,
             ))?;
 
-            trace!("Guest physical memory set: {:#x?}", cell.gpm);
+            trace!("Guest phyiscal memory set: {:#x?}", cell.gpm);
         }
         Ok(cell)
     }
@@ -152,15 +156,23 @@ impl Cell {
         config_frame.copy_data_from(config.as_slice());
 
         let mut comm_page = Frame::new()?;
-        // let mut comm_page = CommPage::new();
-        //     info!("comm page size is :{}", core::mem::size_of::<CommPage>());
-        Ok(Self {
+
+        let mut cell = Self {
             config_frame,
             gpm,
             cpu_set: CpuSet::new(cpu_set.len() as u64 * 8 - 1, cpu_set_long),
             loadable: false,
             comm_page,
-        })
+            mmio: vec![],
+        };
+
+        cell.mmio_region_register(
+            HvSystemConfig::get().platform_info.arch.gicd_base as _,
+            GICD_SIZE,
+            gicv3_mmio_handler,
+        );
+
+        Ok(cell)
     }
 
     pub fn suspend(&self) {
@@ -174,12 +186,12 @@ impl Cell {
         info!("send sgi done!");
     }
 
-    pub fn resume(&slef) {
+    pub fn resume(&self) {
         info!("resuming cpu_set = {:#x?}", self.cpu_set);
         self.cpu_set
             .iter_except(this_cpu_data().id)
             .for_each(|cpu_id| {
-                info!("try to resume cpu_is: {:#x?}", cpu_id);
+                info!("try to resume cpu_id = {:#x?}", cpu_id);
                 resume_cpu(cpu_id);
             });
     }
@@ -191,11 +203,29 @@ impl Cell {
     pub fn config(&self) -> CellConfig {
         unsafe {
             CellConfig::new(
-                &(slef.config_frame.start_paddr() as *const HvCellDesc)
+                &(self.config_frame.start_paddr() as *const HvCellDesc)
                     .as_ref()
-                    .as_unwrap(),
+                    .unwrap(),
             )
         }
+    }
+
+    pub fn mmio_region_register(&mut self, start: GuestPhysAddr, size: u64, handler: MMIOHandler) {
+        self.mmio.push(MMIOConfig {
+            region: MMIORegion { start, size },
+            handler,
+        })
+    }
+
+    pub fn find_mmio_region(
+        &self,
+        addr: GuestPhysAddr,
+        size: u64,
+    ) -> Option<(MMIORegion, MMIOHandler)> {
+        self.mmio
+            .iter()
+            .find(|cfg| cfg.region.contains_region(addr, size))
+            .map(|cfg| (cfg.region, cfg.handler))
     }
 }
 
@@ -224,6 +254,6 @@ pub fn init() -> HvResult {
     //debug!("{:#x?}", root_cell);
 
     add_cell(root_cell.clone());
-    ROOT_CELL.call_once(|| root_cell.);
+    ROOT_CELL.call_once(|| root_cell);
     Ok(())
 }
