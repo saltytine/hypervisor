@@ -106,13 +106,14 @@ impl<'a> HyperCall<'a> {
                 .as_ref()
                 .unwrap()
         };
+        let cell_w = cell.write();
+        cell_w.gpm.insert(MemoryRegion::new_with_empty_mapper(
+            config_address as usize,
+            cfg_pages_offs + size_of::<HvCellDesc>(),
+            MemoryFlags::READ,
+        ))?;
         let config = CellConfig::new(desc);
         let config_total_size = config.total_size();
-        memory::hv_page_table().write().map_temporary(
-            config_address,
-            cfg_pages_offs + config_total_size,
-            MemFlags::READ,
-        )?;
         info!("cell.desc = {:#x?}", desc);
 
         // we create the new cell here
@@ -174,7 +175,6 @@ impl<'a> HyperCall<'a> {
                     .insert(MemoryRegion::from_hv_memregion(mem, Some(comm_page_pa)))
                     .unwrap();
             });
-            // TODO: we shouldn't add gic mapping to a cell, when mmio is finished, remove this
             // add gicd & gicr mapping here
             cell.gpm
                 .insert(MemoryRegion::new_with_offset_mapper(
@@ -205,7 +205,12 @@ impl<'a> HyperCall<'a> {
         if Arc::ptr_eq(&cell, &root_cell()) {
             return hv_result_err!(EINVAL, "Setting root-cell as loadable is not allowed!");
         }
+
         let mut cell_w = cell.write();
+        if cell_w.loadable {
+            return HyperCallResult::Ok(0);
+        }
+
         cell_w.suspend();
         cell_w.cpu_set.iter().for_each(|cpu_id| park_cpu(cpu_id));
         cell_w.loadable = true;
