@@ -1,7 +1,7 @@
 use crate::config::HvSystemConfig;
 use crate::header::HvHeader;
+use crate::memory::addr::{align_up, VirtAddr};
 pub use crate::memory::PAGE_SIZE;
-use crate::memory::addr::{VirtAddr, align_up};
 
 /// Size of the hypervisor heap.
 pub const HV_HEAP_SIZE: usize = 1024 * 1024; // 1 MB
@@ -22,6 +22,8 @@ pub const PER_CPU_ARRAY_PTR: *mut VirtAddr = __core_end as _;
 
 /// Pointer of the trampoline start.
 pub const TRAMPOLINE_START: *mut VirtAddr = __trampoline_start as _;
+
+pub const INVALID_ADDRESS: u64 = u64::MAX;
 
 /// Pointer of the `HvSystemConfig` structure.
 pub fn hv_config_ptr() -> *const HvSystemConfig {

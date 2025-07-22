@@ -8,7 +8,6 @@ const CONFIG_SIGNATURE: [u8; 6] = *b"RVMSYS";
 const CONFIG_REVISION: u16 = 10;
 
 const HV_CELL_NAME_MAXLEN: usize = 31;
-#[allow(dead_code)]
 const HV_MAX_IOMMU_UNITS: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
@@ -32,11 +31,10 @@ impl HvConsole {
             flags: 0,
             divider: 0,
             gate_nr: 0,
-            clock_reg: 0
+            clock_reg: 0,
         }
     }
 }
-
 /// The jailhouse cell configuration.
 ///
 /// @note Keep Config._HEADER_FORMAT in jailhouse-cell-linux in sync with this
@@ -261,7 +259,7 @@ impl<'a> CellConfig<'a> {
         self.desc.config_size()
     }
 
-    pub fn total_size(&self) -> usize {
+    pub const fn total_size(&self) -> usize {
         self.desc.config_size() + size_of::<HvCellDesc>()
     }
 
@@ -269,13 +267,18 @@ impl<'a> CellConfig<'a> {
         self.desc.id
     }
 
-    pub fn flags() -> u32 {
+    pub const fn flags(&self) -> u32 {
         self.desc.flags
     }
 
     pub fn console(&self) -> HvConsole {
         self.desc.console
     }
+
+    pub fn cpu_reset_address(&self) -> u64 {
+        self.desc.cpu_reset_address
+    }
+
     pub fn cpu_set(&self) -> &[u8] {
         // XXX: data may unaligned, which cause panic on debug mode. Same below.
         // See: https://doc.rust-lang.org/src/core/slice/mod.rs.html#6435-6443
