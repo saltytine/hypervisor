@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(asm_const)]
 #![feature(naked_functions)] //  surpport naked function
+#![deny(warnings)]
 #[macro_use]
 extern crate alloc;
 extern crate buddy_system_allocator;
