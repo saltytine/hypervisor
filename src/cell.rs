@@ -5,13 +5,15 @@ use spin::RwLock;
 use crate::arch::Stage2PageTable;
 use crate::config::{CellConfig, HvCellDesc, HvConsole, HvSystemConfig};
 use crate::control::{resume_cpu, suspend_cpu};
-use crate::device::gicv3::{gicv3_mmio_handler, GICD_SIZE};
+use crate::device::gicv3::{
+    gicv3_gicd_mmio_handler, gicv3_gicr_mmio_handler, GICD_IROUTER, GICD_SIZE, GICR_SIZE,
+};
 use crate::error::HvResult;
 use crate::memory::addr::{GuestPhysAddr, HostPhysAddr};
 use crate::memory::{
-    npages, Frame, MemFlags, MemoryRegion, MemorySet, MMIOConfig, MMIORegion, MMIOHandler,
+    npages, Frame, MMIOConfig, MMIOHandler, MMIORegion, MemFlags, MemoryRegion, MemorySet,
 };
-use crate::percpu::{this_cpu_data, CpuSet};
+use crate::percpu::{get_cpu_data, mpidr_to_cpuid, this_cpu_data, CpuSet};
 use crate::INIT_LATE_OK;
 use core::sync::atomic::Ordering;
 
@@ -75,6 +77,7 @@ pub struct Cell {
     pub gpm: MemorySet<Stage2PageTable>,
     pub mmio: Vec<MMIOConfig>,
     pub cpu_set: CpuSet,
+    pub irq_bitmap: [u32; 1024 / 32],
     pub loadable: bool,
 }
 
@@ -82,14 +85,14 @@ impl Cell {
     fn new_root() -> HvResult<Self> {
         let sys_config = HvSystemConfig::get();
         let cell_config = sys_config.root_cell.config();
-        let mut cell = Self::new(cell_config)?;
+        let mut cell = Self::new(cell_config, true)?;
 
         let mmcfg_start = sys_config.platform_info.pci_mmconfig_base;
         let mmcfg_size = (sys_config.platform_info.pci_mmconfig_end_bus + 1) as u64 * 256 * 4096;
         let hv_phys_start = sys_config.hypervisor_memory.phys_start as usize;
         let hv_phys_size = sys_config.hypervisor_memory.size as usize;
 
-        // Back the region of hypervisor core in linux so that the shutdown will not trigger violations
+        // Back the region of hypervisor core in linux so that shutdown will not trigger violations.
         cell.gpm.insert(MemoryRegion::new_with_offset_mapper(
             hv_phys_start as GuestPhysAddr,
             hv_phys_start as HostPhysAddr,
@@ -110,7 +113,7 @@ impl Cell {
                 .unwrap()
         });
 
-        // TODO: without this mapping, enabling the hypervisor will get an error, maybe now we don't have mmio handlers
+        // TODO: Without this mapping, enable hypervisor will get an error, maybe now we don't have mmio handlers.
         cell.gpm.insert(MemoryRegion::new_with_offset_mapper(
             mmcfg_start as GuestPhysAddr,
             mmcfg_start as HostPhysAddr,
@@ -118,56 +121,87 @@ impl Cell {
             MemFlags::READ | MemFlags::WRITE | MemFlags::IO,
         ))?;
 
-        // TODO: without this mapping, creating a new cell will get warnings because we don't have mmio handlers now
-        cell.gpm.insert(MemoryRegion::new_with_offset_mapper(
-            0x800_0000 as GuestPhysAddr,
-            0x800_0000 as HostPhysAddr,
-            0x020_0000 as usize,
-            MemFlags::READ | MemFlags::WRITE,
-        ))?;
-        trace!("Guest physical memory set: {:#x?}", cell.gpm);
+        // TODO: Without this mapping, create a new cell will get warnings because we don't have mmio handlers now.
+        // cell.gpm.insert(MemoryRegion::new_with_offset_mapper(
+        //     0x800_0000 as GuestPhysAddr,
+        //     0x800_0000 as HostPhysAddr,
+        //     0x020_0000 as usize,
+        //     MemFlags::READ | MemFlags::WRITE,
+        // ))?;
+        trace!("Guest phyiscal memory set: {:#x?}", cell.gpm);
         Ok(cell)
     }
 
-    pub fn new(config: CellConfig) -> HvResult<Self> {
-        let gpm: MemorySet<Stage2PageTable> = MemorySet::new();
-        let cpu_set = config.cpu_set();
-        if cpu_set.len() != 8 {
-            todo!("Cpu_set should be 8 bytes!");
-        }
-        let cpu_set_long: u64 = cpu_set
-            .iter()
-            .enumerate()
-            .fold(0, |acc, (i, x)| acc | (*x as u64) << (i * 8));
-
-        let config_size = config.total_size();
-        let config_pages = npages(config_size);
-
+    pub fn new(config: CellConfig, is_root_cell: bool) -> HvResult<Self> {
         // todo: config page too big
-        assert!(config_pages == 1);
+        assert!(npages(config.total_size()) == 1);
 
-        // copy config to the newly allocated frame
-        let mut config_frame = Frame::new()?;
-        config_frame.copy_data_from(config.as_slice());
-
-        let comm_page = Frame::new()?;
-
-        let mut cell = Self {
-            config_frame,
-            gpm,
-            cpu_set: CpuSet::new(cpu_set.len() as u64 * 8 - 1, cpu_set_long),
+        let mut cell: Cell = Self {
+            config_frame: {
+                let mut config_frame = Frame::new()?;
+                config_frame.copy_data_from(config.as_slice());
+                config_frame
+            },
+            gpm: MemorySet::new(),
+            cpu_set: CpuSet::from_cpuset_slice(config.cpu_set()),
             loadable: false,
-            comm_page,
+            comm_page: Frame::new()?,
             mmio: vec![],
+            irq_bitmap: [0; 1024 / 32],
         };
 
-        cell.mmio_region_register(
+        cell.register_gicv3_mmio_handlers();
+        cell.init_irq_bitmap();
+        if !is_root_cell {
+            let root_cell = root_cell();
+            let mut root_cell_w = root_cell.write();
+            root_cell_w.remove_irqs(&cell.irq_bitmap);
+        }
+        Ok(cell)
+    }
+
+    fn remove_irqs(&mut self, irq_bitmap: &[u32]) {
+        for (i, &bitmap) in irq_bitmap.iter().enumerate() {
+            self.irq_bitmap[i] &= !bitmap;
+        }
+    }
+
+    fn init_irq_bitmap(&mut self) {
+        let config = self.config();
+        let irq_chips = config.irq_chips().to_vec();
+        for irq_chip in irq_chips.iter() {
+            let irq_bitmap_slice = &mut self.irq_bitmap[1..4 + 1];
+            irq_bitmap_slice
+                .iter_mut()
+                .zip(irq_chip.pin_bitmap.iter())
+                .for_each(|(dest, src)| {
+                    *dest |= *src;
+                });
+        }
+        warn!("irq bitmap = {:#x?}", self.irq_bitmap);
+    }
+
+    fn register_gicv3_mmio_handlers(&mut self) {
+        // add gicd handler
+        self.mmio_region_register(
             HvSystemConfig::get().platform_info.arch.gicd_base as _,
             GICD_SIZE,
-            gicv3_mmio_handler,
+            gicv3_gicd_mmio_handler,
+            0,
         );
 
-        Ok(cell)
+        let sys = HvSystemConfig::get();
+        let syscfg = sys.root_cell.config();
+
+        // add gicr handler
+        for cpu in CpuSet::from_cpuset_slice(syscfg.cpu_set()).iter() {
+            self.mmio_region_register(
+                get_cpu_data(cpu).gicr_base as _,
+                GICR_SIZE,
+                gicv3_gicr_mmio_handler,
+                cpu as _,
+            );
+        }
     }
 
     pub fn suspend(&self) {
@@ -197,7 +231,7 @@ impl Cell {
 
     pub fn config(&self) -> CellConfig {
         // Enable stage 1 translation in el2 changes config_addr from physical address to virtual address
-        // with an offset `PHYS_VIRT_OFFSET`, so we need to check whether stage 1 translation is enabled
+        // with an offset `PHYS_VIRT_OFFSET`, so we need to check whether stage 1 translation is enabled.
         let config_addr = match INIT_LATE_OK.load(Ordering::Relaxed) {
             1 => self.config_frame.as_ptr() as usize,
             _ => self.config_frame.start_paddr(),
@@ -205,10 +239,17 @@ impl Cell {
         unsafe { CellConfig::new(&(config_addr as *const HvCellDesc).as_ref().unwrap()) }
     }
 
-    pub fn mmio_region_register(&mut self, start: GuestPhysAddr, size: u64, handler: MMIOHandler) {
+    pub fn mmio_region_register(
+        &mut self,
+        start: GuestPhysAddr,
+        size: u64,
+        handler: MMIOHandler,
+        arg: u64,
+    ) {
         self.mmio.push(MMIOConfig {
             region: MMIORegion { start, size },
             handler,
+            arg,
         })
     }
 
@@ -216,11 +257,45 @@ impl Cell {
         &self,
         addr: GuestPhysAddr,
         size: u64,
-    ) -> Option<(MMIORegion, MMIOHandler)> {
+    ) -> Option<(MMIORegion, MMIOHandler, u64)> {
         self.mmio
             .iter()
             .find(|cfg| cfg.region.contains_region(addr, size))
-            .map(|cfg| (cfg.region, cfg.handler))
+            .map(|cfg| (cfg.region, cfg.handler, cfg.arg))
+    }
+
+    pub fn irq_in_cell(&self, irq_id: u32) -> bool {
+        let idx = (irq_id / 32) as usize;
+        let bit_pos = (irq_id % 32) as usize;
+        (self.irq_bitmap[idx] & (1 << bit_pos)) != 0
+    }
+
+    pub fn gicv3_adjust_irq_target(&mut self, irq_id: u32) {
+        let gicd_base = HvSystemConfig::get().platform_info.arch.gicd_base;
+        let irouter = (gicd_base + GICD_IROUTER + 8 * irq_id as u64) as *mut u64;
+        let mpidr = get_cpu_data(self.cpu_set.first_cpu().unwrap()).mpidr;
+
+        unsafe {
+            let route = mpidr_to_cpuid(irouter.read_volatile());
+            if !self.owns_cpu(route) {
+                warn!("adjust irq {} target -> cpu {}", irq_id, mpidr & 0xff);
+                irouter.write_volatile(mpidr);
+            }
+        }
+    }
+
+    pub fn gicv3_config_commit(&mut self) {
+        let rc = root_cell();
+        let mut rc_w = rc.write();
+
+        for n in 32..1024 {
+            if self.irq_in_cell(n) {
+                self.gicv3_adjust_irq_target(n);
+            }
+            if rc_w.irq_in_cell(n) {
+                rc_w.gicv3_adjust_irq_target(n);
+            }
+        }
     }
 }
 

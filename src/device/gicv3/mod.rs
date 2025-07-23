@@ -75,16 +75,17 @@
 //!         CPU interface number. Of the banked interrupt IDs:
 //!           - 00..15 SGIs
 //!           - 16..31 PPIs
-
 #![allow(dead_code)]
 mod gicd;
 mod gicr;
 use crate::arch::sysreg::{read_sysreg, smc_arg1, write_sysreg};
 use crate::config::HvSystemConfig;
-use crate::error::HvResult;
 use crate::hypercall::{SGI_EVENT_ID, SGI_RESUME_ID};
-use crate::memory::MMIOAccess;
 use crate::percpu::check_events;
+
+pub use gicd::{gicv3_gicd_mmio_handler, GICD_IROUTER};
+pub use gicr::gicv3_gicr_mmio_handler;
+
 /// Representation of the GIC.
 pub struct GICv3 {
     /// The Distributor.
@@ -128,8 +129,8 @@ pub fn gicv3_cpu_init() {
     let igrpen = read_sysreg!(icc_igrpen1_el1);
     write_sysreg!(icc_igrpen1_el1, 0x1); //group 1 irq
     debug!("ctlr: {:#x?}, pmr:{:#x?},igrpen{:#x?}", ctlr, pmr, igrpen);
-    let vtr = read_sysreg!(ich_vtr_el2);
-    let mut vmcr = ((pmr & 0xff) << 24) | (1 << 1) | (1 << 9); //VPMR|VENG1|VEOIM
+    let _vtr = read_sysreg!(ich_vtr_el2);
+    let vmcr = ((pmr & 0xff) << 24) | (1 << 1) | (1 << 9); //VPMR|VENG1|VEOIM
     write_sysreg!(ich_vmcr_el2, vmcr);
     write_sysreg!(ich_hcr_el2, 0x1); //enable virt cpu interface
 }
@@ -319,7 +320,7 @@ fn inject_irq(irq_id: usize) {
         //     lr |= ICH_LR_HW_BIT;
         //     lr |= (u64)irq_id << ICH_LR_PHYS_ID_SHIFT;
         // }
-        let mut val = irq_id as u64; // v intid
+        let mut val = irq_id as u64; //v intid
         val |= 1 << 60; //group 1
         val |= 1 << 62; //state pending
         val |= 1 << 61; //map hardware
@@ -329,9 +330,17 @@ fn inject_irq(irq_id: usize) {
     }
 }
 
-pub fn gicv3_mmio_handler(_x: &MMIOAccess) -> HvResult {
-    hv_result_err!(EINVAL)
-}
-
 pub const GICD_SIZE: u64 = 0x10000;
 pub const GICR_SIZE: u64 = 0x20000;
+
+pub fn is_sgi(irqn: u32) -> bool {
+    irqn < 16
+}
+
+pub fn is_ppi(irqn: u32) -> bool {
+    irqn > 15 && irqn < 32
+}
+
+pub fn is_spi(irqn: u32) -> bool {
+    irqn > 31 && irqn < 1020
+}

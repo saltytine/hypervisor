@@ -25,6 +25,7 @@ mod device;
 mod header;
 mod hypercall;
 mod memory;
+mod num;
 mod panic;
 mod percpu;
 
