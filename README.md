@@ -1,7 +1,7 @@
-# sysHyper
+# hvisor
 <p align = "center">
 <br><br>
-<img src="https://img.shields.io/badge/sysHyper-orange" />
+<img src="https://img.shields.io/badge/hvisor-orange" />
 <img src="https://img.shields.io/github/license/saltytine/hypervisor?color=red" />
 <img src="https://img.shields.io/github/contributors/saltytine/hypervisor?color=blue" />
 <img src="https://img.shields.io/github/languages/code-size/saltytine/hypervisor?color=green">
@@ -36,11 +36,11 @@ To make it easy to get started, [here](the archive link will go here when ready)
 ├── home
 	├── arm64
         ├── images: Contains a Linux Image and ramfs.
-        ├── sysHyper: Files required to run sysHyper.
+        ├── hvisor: Files required to run hvisor.
         ├── jailhouse: Files required to run jailhouse.
 ```
 
-The following describes how to run a non-root-linux on jailhouse/sysHyper based on `ubuntu-20.04-rootfs_ext4.img`:
+The following describes how to run a non-root-linux on jailhouse/hvisor based on `ubuntu-20.04-rootfs_ext4.img`:
 
 1. Build `rvmarm.bin`:
 
@@ -48,7 +48,7 @@ The following describes how to run a non-root-linux on jailhouse/sysHyper based 
    make all
    ```
 
-   Then copy `target/aarch64/debug/rvmarm.bin` to `~/sysHyper/` in `ubuntu-20.04-rootfs_ext4.img`.
+   Then copy `target/aarch64/debug/rvmarm.bin` to `~/hypervisor/` in `ubuntu-20.04-rootfs_ext4.img`.
 
 2. Start QEMU:
 
@@ -73,7 +73,7 @@ The following describes how to run a non-root-linux on jailhouse/sysHyper based 
 
 4. Go to the home directory and start non-root-linux:
 
-   * For sysHyper: go to the `sysHyper` folder and run:
+   * For hvisor: go to the `hvisor` folder and run:
 
      ```
      ./setup.sh
