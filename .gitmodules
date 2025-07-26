@@ -1,9 +1,0 @@
-[submodule "test-img"]
-        path = test-img
-        url = git@github.com:saltytine/sysHyper-testimg.git
-[submodule "sysHyper-testimg"]
-	path = sysHyper-testimg
-	url = https://github.com/saltytine/sysHyper-testimg
-[submodule "testimg"]
-	path = testimg
-	url = https://github.com/saltytine/sysHyper-testimg

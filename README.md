@@ -1,145 +1,106 @@
 # sysHyper
-![Static Badge](https://img.shields.io/badge/sysHyper-orange)
-![GitHub](https://img.shields.io/github/license/saltytine/hypervisor?color=red)
+<p align = "center">
+<br><br>
+<img src="https://img.shields.io/badge/sysHyper-orange" />
+<img src="https://img.shields.io/github/license/saltytine/hypervisor?color=red" />
+<img src="https://img.shields.io/github/contributors/saltytine/hypervisor?color=blue" />
+<img src="https://img.shields.io/github/languages/code-size/saltytine/hypervisor?color=green">
+<img src="https://img.shields.io/github/repo-size/saltytine/hypervisor?color=white">
+<img src="https://img.shields.io/github/languages/top/saltytine/hypervisor?color=orange">
+<br><br>
+</p>
 
-[![Contributors](https://img.shields.io/github/contributors/saltytine/hypervisor?color=blue)](https://github.com/saltytine/hypervisor)
-![GitHub Repo stars](https://img.shields.io/github/stars/saltytine/hypervisor?color=yellow)
-![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/w/saltytine/hypervisor?color=black)
+Armv8 hypervisor based on Linux & implemented in Rust，porting from [RVM1.5](https://github.com/rcore-os/RVM1.5) & [jailhouse](https://github.com/siemens/jailhouse).
 
-![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/saltytine/hypervisor?color=green)
-![GitHub repo size](https://img.shields.io/github/repo-size/saltytine/hypervisor?color=white)
-![GitHub top language](https://img.shields.io/github/languages/top/saltytine/hypervisor?color=orange)
-
-
-
-
-Armv8 hypervisor based on Linux & implemented in Rust, porting from [RVM1.5](https://github.com/rcore-os/RVM1.5) & [jailhouse](https://github.com/siemens/jailhouse)
+Working In Progress.
 
 ## Progress
-- [x] arch_entry
-- [x] cpu
-- [x] logging
-- [x] exception
-- [x] gicv3
-- [x] memory
-- [ ] ....
-## Platform
-- [x] qemu
-- [ ] imx
-- [ ] ti
-- [ ] rpi4
-## Environment Configuration
-### Install Rust
-First, install Rust version manager rustup and Rust package manager cargo.
-### qemu simulator compilation
-```sh
-sudo apt install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev \
-gawk build-essential bison flex texinfo gperf libtool patchutils bc \
-zlib1g-dev libexpat-dev pkg-config libglib2.0-dev libpixman-1-dev git tmux python3 ninja-build # Install the required dependencies for compilation
-wget https://download.qemu.org/qemu-7.0.0.tar.xz # Download source code
-tar xvJf qemu-7.0.0.tar.xz # Unzip
-cd qemu-7.0.0
-./configure # Generate configuration file
-make -j$(nproc) # Compile
-qemu-system-aarch64 --version # View version
+
+- [x] Architecture: aarch64
+- [x] Platform: Qemu virt aarch64
+- [x] Exception
+- [x] Gicv3
+- [x] Memory
+- [x] Enable non root linux
+- [ ] VirtIO device: block, net
+- [ ] Architecture: riscv64
+- [ ] Platform: nxp
+
+## Build & Run
+
+For detailed build and running tutorials, including building the development environment and creating a file system, please refer to [here](https://github.com/saltytine/notes-and-guides/blob/main/arm64-qemu-jailhouse.md).
+
+To make it easy to get started, [here](the archive link will go here when ready) (extraction code: `sysH`) provides a  Linux kernel `Image` and a file system `ubuntu-20.04-rootfs_ext4.img` with the username `arm64` and the password as a whitespace. The directories are organized as follows:
+
 ```
-Qemu version > 7.2 requires additional configuration, otherwise the following problems may occur at startup
-```
-network backend user is not compiled into this binary
-```
-The following settings need to be made before compiling:
-```sh
-sudo apt install libslirp-dev
-../configure --enable-slirp
-```
-After compiling, you can `sudo make install` to install Qemu to the `/usr/local/bin` directory,
-You can also edit ` ~/.bashrc` File (if you are using the default bash terminal), add the following to the end of the file:
-```
-export PATH=$PATH:/path/to/qemu-7.0.0/build
+├── home
+	├── arm64
+        ├── images: Contains a Linux Image and ramfs.
+        ├── sysHyper: Files required to run sysHyper.
+        ├── jailhouse: Files required to run jailhouse.
 ```
 
-### Start qemu
-```sh
-mkdir qemu-test # Create a new folder for testing
-git submodule update --init --recursive # Update submodules
-cp -r test-img/* qemu-test # Transfer the required files to the test folder
-cd qemu-test/host
-./test.sh # Start qemu
-```
-The default user password for Linux is root/root
-### Compile sysHyper
-Execute on the host
-```sh
-make # Compile the hypervisor image rvmarm.bin
-make scp # Transfer the obtained rvmarm.bin file to the Linux running on qemu
-```
-### Run sysHyper
-Transfer the necessary files to the guest Linux:
-```sh
-scp -P 2333 -r qemu-test/guest/* root@localhost:~/
-```
-In guest linux
-```sh
-./setup.sh #Set file path
-./enable.sh #Run sysHyper, enable virtualization
-cat /proc/cpuinfo #View current linux cpuinfo
-jailhouse cell create configs/qemu-arm64-gic-demo.cell #Create a new cell, move cpu 3 out of the root cell
-cat /proc/cpuinfo #View current linux cpuinfo, cpu3 is shutdown
-jailhouse disable #Disable virtualization
-```
-### output
-You should be able to see some information printed by the hypervisor
+The following describes how to run a non-root-linux on jailhouse/sysHyper based on `ubuntu-20.04-rootfs_ext4.img`:
 
-### Debugging
-You can use vscode for visual debugging, add `-s -S` to the end of the original qemu command
-```sh
-qemu-system-aarch64 \
-    -drive file=./rootfs.qcow2,discard=unmap,if=none,id=disk,format=qcow2 \
-    -device virtio-blk-device,drive=disk \
-    -m 1G -serial mon:stdio \
-    -kernel Image \
-    -append "root=/dev/vda mem=768M" \
-    -cpu cortex-a57 -smp 4 -nographic -machine virt,gic-version=3,virtualization=on \
-    -device virtio-serial-device -device virtconsole,chardev=con \
-    -chardev vc,id=con \
-    -net nic \
-    -net user,hostfwd=tcp::2333-:22 -s -S
-```
-Start qemu first, then press F5 to start debugging
+1. Build `rvmarm.bin`:
 
-### Original jailhouse
-During the development and debugging process, in order to facilitate comparison with the original jailhouse, the original jailhouse running environment of version v0.12 is also provided:
-    - test-img/host/jail-img kernel
-    - test-img/guest/jail Original jailhouse compiled generated files
-The running command is:
-```sh
-qemu-system-aarch64 \
-    -drive file=./rootfs.qcow2,discard=unmap,if=none,id=disk,format=qcow2 \
-    -m 1G -serial mon:stdio -netdev user,id=net,hostfwd=tcp::23333-:22 \
-    -kernel jail-img \
-    -append "root=/dev/vda mem=768M"  \
-    -cpu cortex-a57 -smp 16 -nographic -machine virt,gic-version=3,virtualization=on \
-    -device virtio-serial-device -device virtconsole,chardev=con -chardev vc,id=con -device virtio-blk-device,drive=disk \
-    -device virtio-net-device,netdev=net
+   ```bash
+   make all
+   ```
+
+   Then copy `target/aarch64/debug/rvmarm.bin` to `~/sysHyper/` in `ubuntu-20.04-rootfs_ext4.img`.
+
+2. Start QEMU:
+
+   ```bash
+   sudo qemu-system-aarch64 \
+       -machine virt,gic_version=3 \
+       -machine virtualization=true \
+       -cpu cortex-a57 \
+       -machine type=virt \
+       -nographic \
+       -smp 16  \
+       -m 1024 \
+       -kernel your-linux-Image-path/Image \
+       -append "console=ttyAMA0 root=/dev/vda rw mem=768m" \
+       -drive if=none,file=your-rootfs-path/ubuntu-20.04-rootfs_ext4.img,id=hd0,format=raw \
+       -device virtio-blk-device,drive=hd0 \
+       -net nic \
+       -net user,hostfwd=tcp::2333-:22
+   ```
+
+3. Enter the username `arm64` and the password as a whitespace after startup.
+
+4. Go to the home directory and start non-root-linux:
+
+   * For sysHyper: go to the `sysHyper` folder and run:
+
+     ```
+     ./setup.sh
+     ./linux.sh
+     ```
+
+   * For Jailhouse: go to the `jailhouse` folder and run:
+
+     ```
+     ./linux.sh
+     ```
+
+### Enable a second serial console
+
+If someone wants non-root-linux and root-linux in two different terminals, add this line at the end of the qemu startup command:
+
 ```
-In guest:
-```sh
-cd jail
-insmod ./jailhouse.ko
-cp jailhouse.bin /lib/firmware/
-./jailhouse enable configs/qemu-arm64.cell
+-device virtio-serial-device -chardev pty,id=serial3 -device virtconsole,chardev=serial3
 ```
 
-### Compile demo
-Now you can create a new cell and run a simple hello world program.
-```sh
-cd demo/hello
-make
-cd ../..
-cp demo/hello/target/aarch64/debug/hello.bin qemu-test/host
+After starting qemu, the `char device redirected to /dev/pts/num (label serial3)` message will output by the first terminal, execute this in another terminal:
+
 ```
-Add `-device loader,addr=0x7fa00000,file=hello.bin,force-raw=on \`
-After executing cell create, you should see the output `Hello, world!`
+sudo screen /dev/pts/num
+```
+
+where num is a specific number.
 
 Related documents for this project are at
 https://github.com/saltytine/aarch64-cpu

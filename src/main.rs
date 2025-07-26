@@ -1,8 +1,18 @@
+//! The main module and entrypoint
+//!
+//! Various facilities of sysHyper are implemented as submodules. The most
+//! important ones are:
+//!
+//! - [`memory`]: Memory management
+//! - [`hypercall`]: Hypercall handling
+//! - [`device`]: Device management
+//! - [`arch`]: Architectures related
+
 #![no_std]
 #![no_main]
 #![feature(asm_const)]
 #![feature(naked_functions)] //  surpport naked function
-#![deny(warnings)]
+#![deny(warnings, missing_docs)]
 #[macro_use]
 extern crate alloc;
 extern crate buddy_system_allocator;
