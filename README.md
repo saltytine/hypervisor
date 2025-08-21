@@ -30,7 +30,7 @@ Working In Progress.
 
 For detailed build and running tutorials, including building the development environment and creating a file system, please refer to [here](https://github.com/saltytine/notes-and-guides/blob/main/arm64-qemu-jailhouse.md).
 
-To make it easy to get started, [here](the archive link will go here when ready) (extraction code: `sysH`) provides a  Linux kernel `Image` and a file system `ubuntu-20.04-rootfs_ext4.img` with the username `arm64` and the password as a whitespace. The directories are organized as follows:
+To make it easy to get started, [here](https://archive.org/download/ubuntu-20.04-rootfs_ext4/hypervisor/) (extraction code: `sysH`) provides a  Linux kernel `Image` and a file system `ubuntu-20.04-rootfs_ext4.img` with the username `arm64` and the password as a whitespace. The directories are organized as follows:
 
 ```
 ├── home
