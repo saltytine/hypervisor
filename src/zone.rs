@@ -2,13 +2,17 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
 
+use crate::arch::cpu::this_cpu_id;
 use crate::arch::s2pt::Stage2PageTable;
 use crate::consts::MAX_CPU_NUM;
+use crate::control::{resume_cpu, suspend_cpu};
 
+use crate::device::virtio_trampoline::mmio_virtio_handler;
 use crate::error::HvResult;
 use crate::memory::addr::GuestPhysAddr;
-use crate::memory::{MMIOConfig, MMIOHandler, MMIORegion, MemorySet};
+use crate::memory::{MMIOConfig, MMIOHandler, MMIORegion, MemoryRegion, MemorySet};
 use crate::percpu::{get_cpu_data, this_zone, CpuSet};
+use core::ops::Add;
 use core::panic;
 
 pub struct Zone {
@@ -30,26 +34,32 @@ impl Zone {
         }
     }
 
-    // pub fn suspend(&self) {
-    //     trace!("suspending cpu_set = {:#x?}", self.cpu_set);
-    //     self.cpu_set.iter_except(this_cpu_id()).for_each(|cpu_id| {
-    //         trace!("try to suspend cpu_id = {:#x?}", cpu_id);
-    //         suspend_cpu(cpu_id);
-    //     });
-    //     info!("send sgi done!");
-    // }
+    pub fn suspend(&self) {
+        trace!("suspending cpu_set = {:#x?}", self.cpu_set);
+        self.cpu_set.iter_except(this_cpu_id()).for_each(|cpu_id| {
+            trace!("try to suspend cpu_id = {:#x?}", cpu_id);
+            suspend_cpu(cpu_id);
+        });
+        info!("send sgi done!");
+    }
 
-    // pub fn resume(&self) {
-    //     trace!("resuming cpu_set = {:#x?}", self.cpu_set);
-    //     self.cpu_set.iter_except(this_cpu_id()).for_each(|cpu_id| {
-    //         trace!("try to resume cpu_id = {:#x?}", cpu_id);
-    //         resume_cpu(cpu_id);
-    //     });
-    // }
+    pub fn resume(&self) {
+        trace!("resuming cpu_set = {:#x?}", self.cpu_set);
+        self.cpu_set.iter_except(this_cpu_id()).for_each(|cpu_id| {
+            trace!("try to resume cpu_id = {:#x?}", cpu_id);
+            resume_cpu(cpu_id);
+        });
+    }
 
-    // pub fn owns_cpu(&self, id: usize) -> bool {
-    //     self.cpu_set.contains_cpu(id)
-    // }
+    pub fn owns_cpu(&self, id: usize) -> bool {
+        self.cpu_set.contains_cpu(id)
+    }
+
+    /// Query an ipa from zone's stage 2 page table to get pa.
+    pub fn gpm_query(&self, _gpa: GuestPhysAddr) -> usize {
+        todo!();
+        // unsafe { self.gpm.page_table_query(gpa).unwrap().0 }
+    }
 
     /// Register a mmio region and its handler.
     pub fn mmio_region_register(
@@ -59,14 +69,20 @@ impl Zone {
         handler: MMIOHandler,
         arg: usize,
     ) {
-        if let Some(mmio) = self.mmio.iter().find(|mmio| mmio.region.start == start) {
-            panic!("duplicated mmio region {:#x?}", mmio);
-        }
-        self.mmio.push(MMIOConfig {
-            region: MMIORegion { start, size },
-            handler,
-            arg,
-        })
+        if let Some(mmio) = self.mmio.iter_mut().find(|mmio| mmio.region.start == start) {
+            warn!("duplicated mmio region {:#x?}", mmio);
+			if mmio.region.size != size {
+				panic!("duplicated mmio region size not match");
+			}
+			mmio.handler = handler;
+            mmio.arg = arg;
+        } else {
+			self.mmio.push(MMIOConfig {
+				region: MMIORegion { start, size },
+				handler,
+				arg,
+			})
+		}
     }
     /// Remove the mmio region beginning at `start`.
     pub fn mmio_region_remove(&mut self, start: GuestPhysAddr) {
@@ -98,19 +114,21 @@ impl Zone {
     }
 }
 
+static ROOT_ZONE: spin::Once<Arc<RwLock<Zone>>> = spin::Once::new();
 static ZONE_LIST: RwLock<Vec<Arc<RwLock<Zone>>>> = RwLock::new(vec![]);
 
 pub fn root_zone() -> Arc<RwLock<Zone>> {
-    ZONE_LIST.read().get(0).cloned().unwrap()
+    ROOT_ZONE.get().expect("Uninitialized root zone!").clone()
 }
 
-pub fn is_this_root_zone() -> bool {
-    Arc::ptr_eq(&this_zone(), &root_zone())
+pub fn init_root_zone(zone: Arc<RwLock<Zone>>) {
+	ROOT_ZONE.call_once(|| zone.clone());
 }
 
-/// Add zone to CELL_LIST
+/// Add zone to ZONE_LIST
 pub fn add_zone(zone: Arc<RwLock<Zone>>) {
     ZONE_LIST.write().push(zone);
+    // todo: modify FREE_ZONE_IDS
 }
 
 /// Remove zone from ZONE_LIST
@@ -121,8 +139,9 @@ pub fn remove_zone(zone_id: usize) {
         .enumerate()
         .find(|(_, zone)| zone.read().id == zone_id)
         .unwrap();
-    let removed_zone = zone_list.remove(idx);
-    assert_eq!(Arc::strong_count(&removed_zone), 1);
+    zone_list.remove(idx);
+        // todo: modify FREE_ZONE_IDS
+
 }
 
 pub fn find_zone(zone_id: usize) -> Option<Arc<RwLock<Zone>>> {
@@ -131,6 +150,10 @@ pub fn find_zone(zone_id: usize) -> Option<Arc<RwLock<Zone>>> {
         .iter()
         .find(|zone| zone.read().id == zone_id)
         .cloned()
+}
+
+pub fn this_zone_id() -> usize {
+    this_zone().read().id
 }
 
 pub fn zone_create(
@@ -156,6 +179,9 @@ pub fn zone_create(
     let mut zone = Zone::new(zone_id);
     zone.pt_init(guest_entry, &guest_fdt, dtb_ptr as usize, dtb_ipa)
         .unwrap();
+	if zone_id == 1 {
+		zone.mmio_region_register(0xa003c00, 0x200, mmio_virtio_handler, 0xa003c00);
+	}
     zone.mmio_init(&guest_fdt);
     zone.irq_bitmap_init(&guest_fdt);
 
