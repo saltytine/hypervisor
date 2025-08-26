@@ -74,6 +74,8 @@ struct VirtQueue {
     uint16_t used_flags;
 
     uint8_t ready;
+
+    pthread_mutex_t used_ring_lock;
 };
 // The highest representations of virtio device
 struct VirtIODevice
