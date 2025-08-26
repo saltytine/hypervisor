@@ -166,7 +166,7 @@ impl<'a> HyperCall<'a> {
             error!("hv_zone_start: cpu {} already on", boot_cpu);
             return hv_result_err!(EBUSY);
         };
-		info!("start2: hvisor device region: {:?}", dev.immut_region());
+        info!("start2: hvisor device region: {:?}", dev.immut_region());
         HyperCallResult::Ok(0)
     }
 

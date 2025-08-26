@@ -4,7 +4,7 @@
 #include <linux/types.h>
 #define MMAP_SIZE 4096
 #define MAX_REQ 32
-#define MAX_CPUS 20
+#define MAX_CPUS 16
 #define MAX_DEVS 4
 
 // used when start a zone.
@@ -19,7 +19,6 @@ struct hvisor_zone_load {
 	__u32 padding;
 	struct hvisor_image_desc* images;
 };
-
 struct hvisor_image_desc {
 	__u64 source_address; // image address in user space
 	__u64 target_address; // image physical address to load
@@ -35,6 +34,7 @@ struct device_req {
 	__u32 src_zone;
 	__u8 is_write;
 	__u8 need_interrupt;
+    __u16 padding;
 };
 
 struct device_res {
@@ -53,6 +53,7 @@ struct hvisor_device_region {
 	__u64 cfg_values[MAX_CPUS];
     // When config is okay to use, remove these
 	__u64 mmio_addrs[MAX_DEVS];
+    __u8 mmio_avail;
 };
 
 #define HVISOR_INIT_VIRTIO  _IO(1, 0) // virtio device init
