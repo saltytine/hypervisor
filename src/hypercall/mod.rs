@@ -1,17 +1,13 @@
 #![allow(dead_code)]
-use crate::arch::control::send_event;
 use crate::consts::{DTB_IPA, INVALID_ADDRESS, PAGE_SIZE};
 use crate::device::virtio_trampoline::{HVISOR_DEVICE, MAX_DEVS, MAX_REQ, VIRTIO_IRQS};
 use crate::error::HvResult;
-use crate::memory::addr::align_down;
-use crate::memory::{self, MemFlags, MemoryRegion, HVISOR_DEVICE_REGION_BASE};
 use crate::percpu::{get_cpu_data, PerCpu};
-use crate::zone::{find_zone, is_this_root_zone, remove_zone, root_zone, zone_create};
+use crate::zone::{find_zone, is_this_root_zone, remove_zone, zone_create};
 
 use crate::event::{send_event, IPI_EVENT_SHUTDOWN, IPI_EVENT_VIRTIO_INJECT_IRQ, IPI_EVENT_WAKEUP};
-use alloc::sync::Arc;
 use core::convert::TryFrom;
-use core::sync::atomic::{fence, AtomicU32, Ordering};
+use core::sync::atomic::{fence, Ordering};
 
 use numeric_enum_macro::numeric_enum;
 
@@ -30,15 +26,10 @@ numeric_enum! {
         HvVirtioInit = 9,
         HvVirtioInjectIrq = 10,
         HvZoneStart = 11,
-        HvZoneDestroy = 12,
+        HvZoneShutdown = 12,
     }
 }
-
-pub const SGI_INJECT_ID: u64 = 0;
-pub const SGI_VIRTIO_IRQ_ID: u64 = 9;
-pub const SGI_EVENT_ID: u64 = 15;
-pub const SGI_RESUME_ID: u64 = 14;
-pub const COMM_REGION_ABI_REVISION: u16 = 1;
+pub const SGI_IPI_ID: u64 = 7;
 
 pub type HyperCallResult = HvResult<usize>;
 
@@ -64,7 +55,7 @@ impl<'a> HyperCall<'a> {
                 HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0),
                 HyperCallCode::HvVirtioInjectIrq => self.hv_virtio_inject_irq(),
                 HyperCallCode::HvZoneStart => self.hv_zone_start(&*(arg0 as *const ZoneInfo)),
-                HyperCallCode::HvZoneDestroy => self.hv_zone_destroy(arg0),
+                HyperCallCode::HvZoneShutdown => self.hv_zone_shutdown(arg0),
             }
         }
     }
@@ -75,21 +66,20 @@ impl<'a> HyperCall<'a> {
             "handle hvc init virtio, shared_region_addr = {:#x?}",
             shared_region_addr
         );
-        let zone = self.cpu_data.zone.clone().unwrap();
-        if !Arc::ptr_eq(&zone, &root_zone()) {
+        if !is_this_root_zone() {
             return hv_result_err!(EPERM, "Init virtio over non-root zones: unsupported!");
         }
         let shared_region_addr_pa = shared_region_addr as usize;
         assert!(shared_region_addr_pa % PAGE_SIZE == 0);
         // let offset = shared_region_addr_pa & (PAGE_SIZE - 1);
         // memory::hv_page_table()
-        //  .write()
-        //  .insert(MemoryRegion::new_with_offset_mapper(
-        //      HVISOR_DEVICE_REGION_BASE,
-        //      shared_region_addr as _,
-        //      PAGE_SIZE,
-        //      MemFlags::READ | MemFlags::WRITE,
-        //  ))?;
+        // 	.write()
+        // 	.insert(MemoryRegion::new_with_offset_mapper(
+        // 		HVISOR_DEVICE_REGION_BASE,
+        // 		shared_region_addr as _,
+        // 		PAGE_SIZE,
+        // 		MemFlags::READ | MemFlags::WRITE,
+        // 	))?;
         // TODO: flush tlb
         HVISOR_DEVICE
             .lock()
@@ -100,8 +90,7 @@ impl<'a> HyperCall<'a> {
 
     // Inject virtio device's irq to non root when a virtio device finishes one IO request. Only root zone calls.
     fn hv_virtio_inject_irq(&self) -> HyperCallResult {
-        let zone = self.cpu_data.zone.clone().unwrap();
-        if !Arc::ptr_eq(&zone, &root_zone()) {
+        if !is_this_root_zone() {
             return hv_result_err!(
                 EPERM,
                 "Virtio send irq operation over non-root zones: unsupported!"
@@ -127,7 +116,11 @@ impl<'a> HyperCall<'a> {
                 assert!(len + 1 < MAX_DEVS);
                 irq_list[len + 1] = irq_id;
                 irq_list[0] += 1;
-                send_event(target_cpu as _, SGI_VIRTIO_IRQ_ID);
+                send_event(
+                    target_cpu as _,
+                    SGI_IPI_ID as _,
+                    IPI_EVENT_VIRTIO_INJECT_IRQ,
+                );
             }
 
             fence(Ordering::SeqCst);
@@ -138,22 +131,14 @@ impl<'a> HyperCall<'a> {
         HyperCallResult::Ok(0)
     }
 
-    fn hypervisor_disable(&mut self) -> HyperCallResult {
-        todo!();
-        // let cpus = PerCpu::activated_cpus();
-
-        // static TRY_DISABLE_CPUS: AtomicU32 = AtomicU32::new(0);
-        // TRY_DISABLE_CPUS.fetch_add(1, Ordering::SeqCst);
-        // while TRY_DISABLE_CPUS.load(Ordering::Acquire) < cpus {
-        //     core::hint::spin_loop();
-        // }
-        // info!("Handle hvc disable");
-        // self.cpu_data.deactivate_vmm()?;
-        // unreachable!()
-    }
-
     pub fn hv_zone_start(&mut self, zone_info: &ZoneInfo) -> HyperCallResult {
         info!("handle hvc zone start");
+        if !is_this_root_zone() {
+            return hv_result_err!(
+                EPERM,
+                "Start zone operation over non-root zones: unsupported!"
+            );
+        }
         let zone = zone_create(zone_info.id as _, zone_info.dtb_phys_addr as _, DTB_IPA)?;
         let boot_cpu = zone.read().cpu_set.first_cpu().unwrap();
 
@@ -161,58 +146,46 @@ impl<'a> HyperCall<'a> {
         let _lock = target_data.ctrl_lock.lock();
 
         if !target_data.arch_cpu.psci_on {
-            target_data.arch_cpu.psci_on = true;
+            send_event(boot_cpu, SGI_IPI_ID as _, IPI_EVENT_WAKEUP);
         } else {
             error!("hv_zone_start: cpu {} already on", boot_cpu);
             return hv_result_err!(EBUSY);
         };
-        info!("start2: hvisor device region: {:?}", dev.immut_region());
+        drop(_lock);
         HyperCallResult::Ok(0)
     }
 
-    fn hv_zone_destroy(&mut self, _zone_id: u64) -> HyperCallResult {
-        #[cfg(target_arch = "invalid")]
-        {
-            info!("handle hvc zone destroy");
-            let zone = zone_management_prologue(self.cpu_data, zone_id)?;
-            let mut zone_w = zone.write();
-            let root_zone = root_zone();
-            let mut root_zone_w = root_zone.write();
-            // return zone's cpus to root_zone
-            zone_w.cpu_set.iter().for_each(|cpu_id| {
-                park_cpu(cpu_id);
-                root_zone_w.cpu_set.set_bit(cpu_id);
-                get_cpu_data(cpu_id).zone = Some(root_zone.clone());
-            });
-            // return loadable ram memory to root_zone
-            let mem_regs: Vec<HvMemoryRegion> = zone_w.config().mem_regions().to_vec();
-            mem_regs.iter().for_each(|mem| {
-                if !(mem.flags.contains(MemFlags::COMMUNICATION)
-                    || mem.flags.contains(MemFlags::ROOTSHARED))
-                {
-                    root_zone_w.mem_region_map_partial(&MemoryRegion::new_with_offset_mapper(
-                        mem.phys_start as _,
-                        mem.phys_start as _,
-                        mem.size as _,
-                        mem.flags,
-                    ));
-                }
-            });
-            // TODO：arm_zone_dcaches_flush， invalidate zone mems in cache
-            zone_w.cpu_set.iter().for_each(|id| {
-                get_cpu_data(id).cpu_on_entry = INVALID_ADDRESS;
-            });
-            drop(root_zone_w);
-            zone_w.gicv3_exit();
-            zone_w.adjust_irq_mappings();
-            drop(zone_w);
-            // Drop the zone will destroy zone's MemorySet so that all page tables will free
-            drop(zone);
-            remove_zone(zone_id as _);
-            root_zone.read().resume();
-            // TODO: config commit
-            info!("zone destroy succeed");
+    fn hv_zone_shutdown(&mut self, zone_id: u64) -> HyperCallResult {
+        info!("handle hvc zone shutdown, id={}", zone_id);
+        if !is_this_root_zone() {
+            return hv_result_err!(
+                EPERM,
+                "Shutdown zone operation over non-root zones: unsupported!"
+            );
         }
+        if zone_id == 0 {
+            return hv_result_err!(EINVAL);
+        }
+        let zone = match find_zone(zone_id as _) {
+            Some(zone) => zone,
+            _ => return hv_result_err!(EEXIST),
+        };
+        let zone_r = zone.read();
+
+        // // return zone's cpus to root_zone
+        zone_r.cpu_set.iter().for_each(|cpu_id| {
+            let _lock = get_cpu_data(cpu_id).ctrl_lock.lock();
+            get_cpu_data(cpu_id).zone = None;
+            get_cpu_data(cpu_id).cpu_on_entry = INVALID_ADDRESS;
+            send_event(cpu_id, SGI_IPI_ID as _, IPI_EVENT_SHUTDOWN);
+        });
+
+        zone_r.arch_irqchip_reset();
+
+        drop(zone_r);
+        drop(zone);
+        remove_zone(zone_id as _);
+
         HyperCallResult::Ok(0)
     }
 }

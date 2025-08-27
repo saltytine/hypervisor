@@ -129,7 +129,6 @@ impl HvisorDevice {
     pub fn set_base_addr(&mut self, base_addr: usize) {
         self.base_address = base_addr;
         self.is_enable = true;
-		let region = self.immut_region();
     }
 
     pub fn is_req_list_full(&self) -> bool {
@@ -142,6 +141,7 @@ impl HvisorDevice {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_req_list_empty(&self) -> bool {
         let region = self.immut_region();
         fence(Ordering::Acquire);
