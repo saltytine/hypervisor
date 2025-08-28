@@ -13,6 +13,7 @@
 #![feature(asm_const)]
 #![feature(naked_functions)] //  surpport naked function
 #![feature(core_panic)]
+// #![deny(warnings, missing_docs)]
 #[macro_use]
 extern crate alloc;
 extern crate buddy_system_allocator;
@@ -38,7 +39,7 @@ mod zone;
 use crate::arch::mm::setup_parange;
 use crate::consts::{DTB_IPA, MAX_CPU_NUM};
 use crate::platform::qemu_aarch64::ROOT_ZONE_DTB_ADDR;
-use crate::zone::{init_root_zone, zone_create};
+use crate::zone::zone_create;
 use arch::{cpu::cpu_start, entry::arch_entry};
 use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 use percpu::PerCpu;
@@ -57,7 +58,7 @@ pub fn clear_bss() {
     let mut p = sbss as *mut u8;
     while p < ebss as _ {
         unsafe {
-            *p = ;
+            *p = 0;
             p = p.add(1);
         };
     }
@@ -104,8 +105,7 @@ fn primary_init_early(dtb: usize) {
     device::irqchip::primary_init_early(&host_fdt);
     crate::arch::mm::init_hv_page_table(&host_fdt).unwrap();
 
-    let root_zone = zone_create(0, ROOT_ZONE_DTB_ADDR as _, DTB_IPA).unwrap();
-    init_root_zone(root_zone);
+    zone_create(0, ROOT_ZONE_DTB_ADDR as _, DTB_IPA).unwrap();
     INIT_EARLY_OK.store(1, Ordering::Release);
 }
 
@@ -138,14 +138,12 @@ fn wakeup_secondary_cpus(this_id: usize, host_dtb: usize) {
 fn rust_main(cpuid: usize, host_dtb: usize) {
     arch::trap::install_trap_vector();
 
-    let mut is_primary = false;
-    if MASTER_CPU.load(Ordering::Acquire) == -1 {
-        MASTER_CPU.store(cpuid as i32, Ordering::Release);
-        is_primary = true;
-        println!("Hello, HVISOR!");
-        // #[cfg(target_arch = "riscv64")]
-        // clear_bss();
-    }
+    let is_primary = false;
+    println!("Hello, imx HVISOR!");
+    // if MASTER_CPU.load(Ordering::Acquire) == -1 {
+    //     MASTER_CPU.store(cpuid as i32, Ordering::Release);
+    //     is_primary = true;
+    // }
 
     let cpu = PerCpu::new(cpuid);
 
@@ -154,42 +152,48 @@ fn rust_main(cpuid: usize, host_dtb: usize) {
         cpu.id, cpu as *const _, host_dtb
     );
 
-    if is_primary {
-        wakeup_secondary_cpus(cpu.id, host_dtb);
-    }
+    loop {}
+    // // println!(
+    // //     "Booting CPU {}: {:p}, DTB: {:#x}",
+    // //     cpu.id, cpu as *const _, host_dtb
+    // // );
 
-    ENTERED_CPUS.fetch_add(1, Ordering::SeqCst);
-    wait_for(|| PerCpu::entered_cpus() < MAX_CPU_NUM as _);
-    assert_eq!(PerCpu::entered_cpus(), MAX_CPU_NUM as _);
+    // if is_primary {
+    //     wakeup_secondary_cpus(cpu.id, host_dtb);
+    // }
 
-    println!(
-        "{} CPU {} has entered.",
-        if is_primary { "Primary" } else { "Secondary" },
-        cpu.id
-    );
+    // ENTERED_CPUS.fetch_add(1, Ordering::SeqCst);
+    // wait_for(|| PerCpu::entered_cpus() < MAX_CPU_NUM as _);
+    // assert_eq!(PerCpu::entered_cpus(), MAX_CPU_NUM as _);
 
-    #[cfg(target_arch = "aarch64")]
-    setup_parange();
+    // println!(
+    //     "{} CPU {} has entered.",
+    //     if is_primary { "Primary" } else { "Secondary" },
+    //     cpu.id
+    // );
 
-    if is_primary {
-        primary_init_early(host_dtb); // create root zone here
-    } else {
-        wait_for_counter(&INIT_EARLY_OK, 1);
-    }
+    // #[cfg(target_arch = "aarch64")]
+    // setup_parange();
 
-    per_cpu_init(cpu);
-    device::irqchip::percpu_init();
+    // if is_primary {
+    //     primary_init_early(host_dtb); // create root zone here
+    // } else {
+    //     wait_for_counter(&INIT_EARLY_OK, 1);
+    // }
 
-    INITED_CPUS.fetch_add(1, Ordering::SeqCst);
-    wait_for_counter(&INITED_CPUS, MAX_CPU_NUM as _);
+    // per_cpu_init(cpu);
+    // device::irqchip::percpu_init();
 
-    if is_primary {
-        primary_init_late();
-    } else {
-        wait_for_counter(&INIT_LATE_OK, 1);
-    }
+    // INITED_CPUS.fetch_add(1, Ordering::SeqCst);
+    // wait_for_counter(&INITED_CPUS, MAX_CPU_NUM as _);
 
-    cpu.run_vm();
+    // if is_primary {
+    //     primary_init_late();
+    // } else {
+    //     wait_for_counter(&INIT_LATE_OK, 1);
+    // }
+
+    // cpu.run_vm();
 
     // if cpu_data.id == 0 {
     //     prepare_zone_start(this_zone())?;
