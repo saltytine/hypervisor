@@ -35,7 +35,7 @@ impl Zone {
             dtb_ipa as GuestPhysAddr,
             guest_dtb as HostPhysAddr,
             align_up(fdt.total_size()),
-            MemFlags::READ | MemFlags::WRITE | MemFlags::EXECUTE,
+            MemFlags::READ | MemFlags::WRITE,
         ))?;
 
         // probe virtio mmio device
@@ -73,7 +73,9 @@ impl Zone {
         }
 
         // probe uart device
-        for node in fdt.find_all_nodes("/pl011") {
+        for node in fdt
+            .find_all_nodes("/pl011")
+        {
             if let Some(reg) = node.reg().and_then(|mut reg| reg.next()) {
                 let paddr = reg.starting_address as HostPhysAddr;
                 let size = align_up(reg.size.unwrap());
@@ -82,7 +84,22 @@ impl Zone {
                     paddr as GuestPhysAddr,
                     paddr,
                     size,
-                    MemFlags::READ | MemFlags::WRITE,
+                    MemFlags::READ | MemFlags::WRITE | MemFlags::IO,
+                ))?;
+            }
+        }
+
+        for node in fdt.all_nodes().filter(|node| node.name().starts_with("serial")) {
+            info!("ok found! node={:#x?}", node.name());
+            if let Some(reg) = node.reg().and_then(|mut reg| reg.next()) {
+                let paddr = reg.starting_address as HostPhysAddr;
+                let size = align_up(reg.size.unwrap());
+                info!("map uart+++ addr: {:#x}, size: {:#x}", paddr, size);
+                self.gpm.insert(MemoryRegion::new_with_offset_mapper(
+                    paddr as GuestPhysAddr,
+                    paddr,
+                    size,
+                    MemFlags::READ | MemFlags::WRITE | MemFlags::IO,
                 ))?;
             }
         }
