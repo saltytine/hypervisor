@@ -29,20 +29,21 @@ struct hvisor_event *add_event(int fd, int epoll_type,
         void (*handler)(int, int, void *), void *param)
 {
     struct hvisor_event *hevent;
-    struct epoll_event ee;
+    struct epoll_event eevent;
     int ret;
     if (fd < 0 || handler == NULL)
         return NULL;
     hevent = calloc(1, sizeof(struct hvisor_event));
     if (hevent == NULL)
         return NULL;
-    hevent->fd = fd;
-    hevent->epoll_type = epoll_type;
     hevent->handler = handler;
     hevent->param = param;
-    ee.events = epoll_type;
-    ee.ddata.ptr = hevent;
-    ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, hevent->fd, &ee);
+    hevent->fd = fd;
+    hevent->epoll_type = epoll_type;
+
+    eevent.events = epoll_type;
+    eevent.data.ptr = hevent;
+    ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, hevent->fd, &eevent);
     if (ret < 0) {
         log_error("epoll_fd failed, errno is %d", errno);
         free(hevent);
