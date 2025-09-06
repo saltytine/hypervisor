@@ -103,5 +103,5 @@ sudo screen /dev/pts/num
 where num is a specific number.
 
 Related documents for this project are at
-https://github.com/saltytine/aarch64-cpu
+https://github.com/saltytine/aarch64-cpu  
 https://github.com/saltytine/sysHyper-testimg
